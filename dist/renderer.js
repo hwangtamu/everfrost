@@ -1,6 +1,8 @@
 import {drawHero,drawMonster} from './actors.js';
 import {distance,walkable} from './world.js';
 import {ENEMY_TIERS,MODIFIERS} from './monsters.js';
+import {combatStats,regionIndex,skillRange} from './engine.js';
+import {matchesLootFilter} from './loot-filter.js';
 export {drawHero} from './actors.js';
 
 const CELL=26;
@@ -33,12 +35,15 @@ export function drawMinimap(canvas,s,large=false){
 }
 
 export class Battlefield{
-  constructor(canvas,getState,onMove){
+  constructor(canvas,getState,onMove,onLoot){
     this.canvas=canvas;this.ctx=canvas.getContext('2d');this.getState=getState;this.onMove=onMove;
-    this.time=0;this.last=0;this.floats=[];this.effects=[];this.swing=0;this.hitTimes=new Map();this.camera={x:0,y:0};
+    this.time=0;this.last=0;this.floats=[];this.effects=[];this.swing=0;this.hitTimes=new Map();this.camera={x:0,y:0};this.lootHitboxes=[];
     this.texture=new Image();this.texture.onload=()=>{this.terrainSeed=null;};this.texture.src='/assets/mistwood.png';
     canvas.addEventListener('pointerdown',event=>{
       const r=canvas.getBoundingClientRect(),s=getState();
+      const screenX=event.clientX-r.left,screenY=event.clientY-r.top;
+      const loot=this.lootHitboxes.find(b=>screenX>=b.x&&screenX<=b.x+b.w&&screenY>=b.y&&screenY<=b.y+b.h);
+      if(loot){onLoot?.(loot.id);return;}
       const x=(event.clientX-r.left+this.camera.x)/CELL,y=(event.clientY-r.top+this.camera.y)/CELL;
       const clicked=s.enemies.filter(e=>e.hp>0&&(!e.boss||s.map.bossUnlocked)).find(e=>distance(e,{x,y:y+.8})<1.5);
       const destination=clicked||{x:Math.floor(x)+.5,y:Math.floor(y)+.5};
@@ -55,7 +60,7 @@ export class Battlefield{
   size(){const r=this.canvas.getBoundingClientRect();this.w=r.width;this.h=r.height;const dpr=Math.min(devicePixelRatio||1,2);this.canvas.width=r.width*dpr;this.canvas.height=r.height*dpr;this.ctx.setTransform(dpr,0,0,dpr,0,0);}
 
   buildTerrain(s){
-    const map=s.map,p=PALETTES[Math.min(3,Math.floor((s.stage-1)/5))];
+    const map=s.map,p=PALETTES[regionIndex(s)];
     const terrain=document.createElement('canvas');terrain.width=map.width*CELL;terrain.height=map.height*CELL;
     const c=terrain.getContext('2d');c.fillStyle=p.wall;c.fillRect(0,0,terrain.width,terrain.height);
     for(let y=0;y<map.height;y++)for(let x=0;x<map.width;x++){
@@ -92,7 +97,7 @@ export class Battlefield{
   event(e){
     const p=this.getState().player,x=e.x??p.x,y=e.y??p.y;
     if(e.type==='hit'){this.floats.push({text:`${e.critical?'✦ ':''}${e.value}`,x,y:y-1.9,life:1,color:e.critical?'#fff0a1':'#f2e6bf'});this.swing=.65;this.hitTimes.set(`${x.toFixed(1)},${y.toFixed(1)}`,this.time);}
-    if(e.type==='hurt')this.floats.push({text:`−${e.value}`,x,y:y-2,life:.9,color:'#efaa94'});
+    if(e.type==='hurt')this.floats.push({text:`${e.critical?'CRIT ':''}−${e.value}`,x,y:y-2,life:.9,color:e.critical?'#ffd2a3':'#efaa94'});
     if(e.type==='kill')this.floats.push({text:`+${e.gold} gold`,x,y:y-1,life:1.4,color:'#eacb81'});
     if(e.type==='heal')this.floats.push({text:'Restored',x,y:y-2,life:1.5,color:'#a1e0b2'});
     if(['skill','explosion','enemyAttack'].includes(e.type))this.effects.push({...e,life:e.type==='enemyAttack'?.25:.6,total:.6});
@@ -108,6 +113,8 @@ export class Battlefield{
     const motion=s.settings.motion&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
     c.clearRect(0,0,w,h);c.fillStyle='#10251d';c.fillRect(0,0,w,h);
     c.save();c.translate(-this.camera.x,-this.camera.y);c.drawImage(this.terrain,0,0);
+    const reach=combatStats(s).attackRange*CELL;
+    c.beginPath();c.arc(s.player.x*CELL,s.player.y*CELL,reach,0,Math.PI*2);c.strokeStyle='#f0d49732';c.lineWidth=1;c.setLineDash([3,7]);c.stroke();c.setLineDash([]);
     this.landmark(c,map.entrance,'camp',false);
     this.landmark(c,map.shrine,'shrine',map.shrine.used);
     this.landmark(c,map.chest,'chest',map.chest.opened);
@@ -148,13 +155,38 @@ export class Battlefield{
     this.effects=this.effects.filter(e=>e.life>0);
     for(const e of this.effects){e.life-=dt;c.globalAlpha=Math.max(0,e.life/e.total);
       if(e.type==='enemyAttack'){c.strokeStyle='#d9b68c';c.lineWidth=2;c.beginPath();c.moveTo(e.x*CELL,e.y*CELL-15);c.lineTo(e.targetX*CELL,e.targetY*CELL-20);c.stroke();}
-      else{c.strokeStyle=e.id==='mend'?'#a9e2aa':e.id==='storm'?'#b6d9f5':e.type==='explosion'?'#f49c71':'#ffe0a2';c.lineWidth=3;c.beginPath();c.arc(e.x*CELL,e.y*CELL,(1-e.life/e.total)*CELL*(e.id==='storm'?6:3),0,Math.PI*2);c.stroke();}
+      else{c.strokeStyle=e.id==='mend'?'#a9e2aa':e.id==='storm'?'#b6d9f5':e.type==='explosion'?'#f49c71':'#ffe0a2';c.lineWidth=3;c.beginPath();c.arc(e.x*CELL,e.y*CELL,(1-e.life/e.total)*CELL*(e.id==='cleave'||e.id==='storm'?skillRange(s,e.id):3),0,Math.PI*2);c.stroke();}
       c.globalAlpha=1;
     }
     this.floats=this.floats.filter(f=>f.life>0).slice(-25);
     for(const f of this.floats){f.life-=dt;f.y-=dt*.65;c.globalAlpha=Math.min(1,Math.max(0,f.life*2));c.font='bold 15px Georgia';c.textAlign='center';c.fillStyle=f.color;c.shadowColor='#13291e';c.shadowBlur=4;c.fillText(f.text,f.x*CELL,f.y*CELL);c.shadowBlur=0;c.globalAlpha=1;}
+    this.drawGroundLoot(c,s);
     c.restore();this.swing=Math.max(0,this.swing-dt*3);
     this.frame=requestAnimationFrame(t=>this.draw(t));
+  }
+
+  drawGroundLoot(c,s){
+    this.lootHitboxes=[];
+    const colors=['#c1c9b6','#7fb9ed','#e4c570','#e4a16b'];
+    const shown=(s.groundLoot||[]).filter(d=>matchesLootFilter(d.item,s.lootFilter)&&s.map.seen[Math.floor(d.y)*s.map.width+Math.floor(d.x)]);
+    const labels=[];
+    for(const drop of shown){
+      const px=drop.x*CELL,py=drop.y*CELL,color=colors[drop.item.rarity];
+      if(px<this.camera.x-100||px>this.camera.x+this.w+100||py<this.camera.y-60||py>this.camera.y+this.h+60)continue;
+      c.save();c.globalAlpha=.8;
+      if(drop.item.rarity>=2){const beam=c.createLinearGradient(px,py-60,px,py);beam.addColorStop(0,color+'00');beam.addColorStop(1,color+'75');c.fillStyle=beam;c.fillRect(px-5,py-60,10,60);}
+      polygon(c,[[px,py-8],[px+6,py-2],[px,py+4],[px-6,py-2]],color);c.restore();
+      c.font='600 12px system-ui';c.textAlign='center';
+      const name=drop.item.name.length>27?drop.item.name.slice(0,26)+'…':drop.item.name;
+      const w=Math.min(215,c.measureText(name).width+20),h=30;
+      let x=px-w/2,y=py+9;
+      x=Math.max(this.camera.x+6,Math.min(this.camera.x+this.w-w-6,x));
+      while(labels.some(b=>x<b.x+b.w&&x+w>b.x&&y<b.y+b.h&&y+h>b.y))y+=h+3;
+      labels.push({x,y,w,h});
+      c.fillStyle='#0b201cf2';c.strokeStyle=color;c.lineWidth=1;c.beginPath();c.roundRect(x,y,w,h,4);c.fill();c.stroke();
+      c.fillStyle=color;c.fillText(name,x+w/2,y+19);
+      this.lootHitboxes.push({id:drop.id,x:x-this.camera.x,y:y-this.camera.y,w,h});
+    }
   }
 
   landmark(c,p,kind,used){

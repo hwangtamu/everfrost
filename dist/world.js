@@ -18,6 +18,17 @@ export function walkable(map, x, y) {
   return x >= 0 && y >= 0 && x < map.width && y < map.height && map.tiles[y * map.width + x] === 1;
 }
 
+// Sample the complete segment, including both endpoints, to keep ranged strikes
+// and monster awareness from reaching across the walls between trail sections.
+export function hasLineOfSight(map, from, to) {
+  const steps = Math.max(1, Math.ceil(distance(from, to) * 5));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    if (!walkable(map, from.x + (to.x-from.x)*t, from.y + (to.y-from.y)*t)) return false;
+  }
+  return true;
+}
+
 export function findPath(map, from, to) {
   const start = Math.floor(from.y) * map.width + Math.floor(from.x);
   const end = Math.floor(to.y) * map.width + Math.floor(to.x);

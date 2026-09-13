@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateMap,findPath,walkable,seededRandom,distance} from '../dist/world.js';
-import {createGame,tick,stats,startExpedition,defeatEnemy,effectiveDamage,activeAuras,hurtHero,useSkill,movePlayer,saveGame,loadGame,SAVE_KEY,makeItem} from '../dist/engine.js';
+import {createGame,tick,stats,startExpedition,defeatEnemy,effectiveDamage,activeAuras,hurtHero,useSkill,movePlayer,saveGame,loadGame,SAVE_KEY,makeItem,collectLoot} from '../dist/engine.js';
 import {AFFIXES,rollAffixes,lootRarity} from '../dist/loot.js';
 import {MODIFIERS} from '../dist/monsters.js';
 import {enemyDetails,expeditionOverview,itemAffixDetails} from '../dist/expedition-ui.js';
@@ -94,8 +94,10 @@ test('weighted kills unlock the boss, and only boss defeat unlocks the next stag
   assert.equal(s.map.progress,s.map.goal);assert(s.map.bossUnlocked);
   assert.equal(events.filter(e=>e.type==='bossReady').length,1);
   const gold=s.gold;defeatEnemy(s,mobs[0],events,fixed);assert.equal(s.gold,gold);
+  for(const d of [...s.groundLoot])collectLoot(s,d.id);
   const count=s.inventory.length;defeatEnemy(s,boss,events,fixed);
   assert(s.map.completed);assert.equal(s.maxStage,2);assert.equal(s.bosses,1);
+  assert.equal(s.groundLoot.length,2);for(const d of [...s.groundLoot])collectLoot(s,d.id);
   assert.equal(s.inventory.length,count+2);assert(s.inventory.slice(0,2).every(i=>i.rarity>=2));
   assert(events.some(e=>e.type==='complete'));
 });
@@ -119,13 +121,18 @@ test('telegraphed hazards damage inside their radius and can be avoided',()=>{
   assert.equal(hit.hp,stats(hit).maxHp-30);assert.equal(safe.hp,stats(safe).maxHp);
 });
 
-test('item affixes are distinct and allowed for their slots; rarity improves loot',()=>{
+test('item affixes are distinct, respect prefix/suffix caps and scale with item level',()=>{
   const rng=seededRandom(456);
   for(const slot of ['weapon','armor','charm'])for(let rarity=0;rarity<4;rarity++)for(let n=0;n<20;n++){
     const affixes=rollAffixes(slot,rarity,8,rng);
     assert.equal(new Set(affixes.map(a=>a.id)).size,affixes.length);
     assert(affixes.every(a=>AFFIXES[a.id].slots.includes(slot)&&a.value>0));
-    assert(rarity===1?[1,2].includes(affixes.length):affixes.length===[0,0,3,4][rarity]);
+    const prefixes=affixes.filter(a=>AFFIXES[a.id].kind==='prefix'),suffixes=affixes.length-prefixes.length;
+    if(rarity===0)assert.equal(affixes.length,0);
+    if(rarity===1)assert.equal(prefixes.length,1);
+    if(rarity===2)assert(prefixes.length>=2&&prefixes.length<=3&&suffixes>=2&&suffixes<=3);
+    if(rarity===3)assert.equal(prefixes.length,3);
+    assert(affixes.every(a=>{const t=AFFIXES[a.id].tiers[AFFIXES[a.id].tiers.length-a.tier];return t.minLevel<=8&&a.value>=t.minVal&&a.value<=t.maxVal&&a.tier>=3;}));
   }
   const averages=[];
   for(const tier of ['normal','magic','rare','unique']){
@@ -151,7 +158,7 @@ test('affixes and unique powers affect actual hero stats and abilities',()=>{
 test('a full inventory salvages guaranteed drops without exceeding capacity',()=>{
   const s=createGame(1000,42);s.inventory=Array.from({length:48},()=>makeItem('weapon',0));
   const rare=s.enemies.find(e=>e.tier==='rare'),shards=s.shards;
-  defeatEnemy(s,rare,[],fixed);assert.equal(s.inventory.length,48);assert(s.shards>shards+3);
+  defeatEnemy(s,rare,[],fixed);for(const d of [...s.groundLoot])collectLoot(s,d.id);assert.equal(s.inventory.length,48);assert(s.shards>shards+3);
 });
 
 test('saving preserves the generated map, defeated enemies, exploration and hero position',()=>{
