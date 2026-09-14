@@ -1,4 +1,4 @@
-// Implicits belong to the base item: rarity and explicit crafting never reroll them.
+// Implicits belong to the base item: grade and explicit crafting never reroll them.
 export const GEAR = {
   head:{label:'Head',name:'Warden Helm',icon:'shield',rates:{defense:.8,maxHp:3}},
   neck:{label:'Neck',name:'Runestone Pendant',icon:'gem',rates:{maxHp:9,attack:.8}},

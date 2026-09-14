@@ -1,4 +1,4 @@
-import {applyEssence,essenceCount} from './essences.js';
+import {applyEssence,essenceCount,discardEssence} from './essences.js';
 import {teleportVillage,resumeExpedition,startVillageStage,craftKeystone,openRiftPortal,enterRift} from './engine.js';
 import {villagePanel,keystonePouch,keystoneDetails} from './village-ui.js';
 import {GEAR,GEAR_SLOTS,RING_SLOTS,STAT_LABELS,implicitStats,primaryStat,primaryPower,implicitMarkup} from './gear.js';
@@ -14,7 +14,7 @@ import {worldMapPanel} from './world-ui.js';
 import {lootFilterPanel,filterFromForm,updateFilterPreview} from './loot-filter-ui.js';
 import {normalizeLootFilter} from './loot-filter.js';
 import {mountExpedition,updateExpedition,enemyDetails,threatGuide,expeditionOverview,itemAffixDetails,modDictionary} from './expedition-ui.js';
-import {craftingPanel,selectCraftItem,selectEssence,essencePouch} from './crafting-ui.js';
+import {craftingPanel,selectCraftItem,selectEssence,selectEssenceFilter,essencePouch} from './crafting-ui.js';
 import {craft,craftTarget,CRAFT_OPERATIONS} from './crafting.js';
 const loaded=loadGame();let state=loaded.state;let view=state.location==='village'?'village':'adventure';let keyPage=0;let filter='all';let inventorySort='recent';let logMode='loot';let audioContext;
 const $=id=>document.getElementById(id);
@@ -173,6 +173,21 @@ document.addEventListener('click',e=>{
   if(view==='forge')renderSecondary();update();persist();
  }
  if(b.dataset.action==='mod-dictionary')modal('Modifier dictionary',modDictionary(state));
+ if(b.dataset.essence){selectEssence(b.dataset.essence);renderSecondary();document.querySelector(`[data-essence="${CSS.escape(b.dataset.essence)}"]`)?.focus();}
+ if(b.dataset.essenceGrade){selectEssenceFilter('grade',b.dataset.essenceGrade);renderSecondary();document.querySelector(`[data-essence-grade="${CSS.escape(b.dataset.essenceGrade)}"]`)?.focus();}
+ if(b.dataset.essenceKind){selectEssenceFilter('kind',b.dataset.essenceKind);renderSecondary();document.querySelector(`[data-essence-kind="${CSS.escape(b.dataset.essenceKind)}"]`)?.focus();}
+ if(b.dataset.discardEssenceOne){
+  const n=discardEssence(state,b.dataset.discardEssenceOne,1);
+  if(n){renderSecondary();update();persist();announce('Discarded one essence.');}
+ }
+ if(b.dataset.discardEssence){
+  const essence=state.essences?.find(x=>x.id===b.dataset.discardEssence);
+  if(essence)modal('Discard essences',`<p class="dialog-description">Discard <strong>${esc(b.dataset.essenceLabel||'this modifier')}</strong>? <b>${fmt(essence.count)}</b> ${essence.count===1?'copy':'copies'} would be lost forever.</p><div class="reroll-actions"><button class="button" data-action="close">Keep it</button><button class="button gold-button" data-confirm-discard-essence="${esc(essence.id)}">Discard ${fmt(essence.count)} ${icon('close')}</button></div>`);
+ }
+ if(b.dataset.confirmDiscardEssence){
+  const n=discardEssence(state,b.dataset.confirmDiscardEssence);
+  if(n){$('dialog').close();renderSecondary();update();persist();announce('Discarded '+n+' essence'+(n===1?'':'s')+'.');}
+ }
  if(b.dataset.action==='close')$('dialog').close();
  if(b.dataset.action==='account')accountModal();
  if(b.dataset.action==='sign-in')account?.signIn().catch(()=>announce('Sign-in did not complete. Try again.'));
@@ -207,13 +222,13 @@ document.addEventListener('click',e=>{
  if(changed){renderHero();if(view!=='adventure')renderSecondary();update();persist();}
  if(b.dataset.claim&&view==='journal')renderSecondary();
 });
-document.addEventListener('change',e=>{if(e.target.id==='inventory-filter'){filter=e.target.value;renderSecondary();$('inventory-filter').focus();}if(e.target.id==='inventory-sort'){inventorySort=e.target.value;renderSecondary();$('inventory-sort').focus();}if(e.target.id==='setting-motion'){state.settings.motion=e.target.checked;persist();}if(e.target.id==='setting-sound'){state.settings.sound=e.target.checked;$('sound-button').innerHTML=icon(state.settings.sound?'sound':'mute');$('sound-button').setAttribute('aria-label',state.settings.sound?'Mute sound':'Enable sound');sound();persist();}if(e.target.id==='craft-item'){selectCraftItem(e.target.value);renderSecondary();}if(e.target.id==='craft-essence'){selectEssence(e.target.value);renderSecondary();$('craft-essence').focus();}});
+document.addEventListener('change',e=>{if(e.target.id==='inventory-filter'){filter=e.target.value;renderSecondary();$('inventory-filter').focus();}if(e.target.id==='inventory-sort'){inventorySort=e.target.value;renderSecondary();$('inventory-sort').focus();}if(e.target.id==='setting-motion'){state.settings.motion=e.target.checked;persist();}if(e.target.id==='setting-sound'){state.settings.sound=e.target.checked;$('sound-button').innerHTML=icon(state.settings.sound?'sound':'mute');$('sound-button').setAttribute('aria-label',state.settings.sound?'Mute sound':'Enable sound');sound();persist();}if(e.target.id==='craft-item'){selectCraftItem(e.target.value);renderSecondary();}});
 document.addEventListener('submit',e=>{
  if(e.target.id==='loot-filter-form'){e.preventDefault();state.lootFilter=filterFromForm(e.target);$('dialog').close();update();persist();announce('Loot filter saved.');}
  if(e.target.id==='village-stage-form'){e.preventDefault();if(startVillageStage(state,Number(new FormData(e.target).get('stage')))){navigate('adventure');update();persist();}}
  if(e.target.id==='stage-travel-form'){e.preventDefault();const stage=Number(new FormData(e.target).get('stage'));if(travel(state,stage)){$('dialog').close();navigate('adventure');update();persist();}}
 });
-document.addEventListener('input',e=>{if(e.target.closest('#loot-filter-form'))updateFilterPreview(state,e.target.closest('form'));});
+document.addEventListener('input',e=>{if(e.target.closest('#loot-filter-form'))updateFilterPreview(state,e.target.closest('form'));if(e.target.id==='essence-search'){const query=e.target.value.trim().toLowerCase();document.querySelectorAll('[data-essence-search]').forEach(card=>card.hidden=query&&!card.dataset.essenceSearch.includes(query));const visible=[...document.querySelectorAll('[data-essence-search]')].filter(card=>!card.hidden).length;document.querySelector('.essence-search-results')?.remove();if(!visible){const note=document.createElement('p');note.className='essence-search-results';note.textContent='No visible essences match that search.';document.querySelector('.essence-card-grid')?.append(note);}}});
 document.addEventListener('submit',e=>{if(e.target.id!=='rename-form')return;e.preventDefault();const name=$('hero-name').value.trim();if(!name){$('hero-name').setCustomValidity('Please enter a name.');$('hero-name').reportValidity();return;}state.name=name.slice(0,20);$('dialog').close();renderHero();renderSecondary();update();persist();announce('A new name. The same brave heart.','success');});
 document.addEventListener('input',e=>{if(e.target.id==='hero-name')e.target.setCustomValidity('');});
 $('dialog').addEventListener('click',e=>{if(e.target===$('dialog')){const r=$('dialog').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('dialog').close();}});

@@ -167,8 +167,11 @@ instead of entering the pouch.
 Applying an essence targets an open prefix/suffix slot, or replaces a weaker
 modifier of the same family (the essence tier must beat the existing tier).
 Slam success also falls with grade (95% D → 15% S); a failed attempt consumes
-the essence and leaves the item unchanged. Identical modifiers stack in the
-pouch (≤512 stacks) and survive saves.
+the essence and leaves the item unchanged. The forge uses selectable modifier
+cards with live search and filters for grade, prefix, suffix, and compatibility.
+Incompatible cards explain why they cannot be applied. Identical modifiers
+stack in the pouch (≤512 stacks) and survive saves. Players may discard one
+copy immediately or review and discard an entire stack to free a stack slot.
 
 ### Forge & salvage
 

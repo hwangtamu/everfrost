@@ -73,5 +73,5 @@ game/
 
 ```sh
 node server.mjs              # http://localhost:5173
-node --test tests/*.test.mjs # run the 98 tests
+node --test tests/*.test.mjs # run the 100 tests
 ```

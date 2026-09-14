@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createGame,makeItem,saveGame,loadGame} from '../dist/engine.js';
 import {AFFIXES,ITEM_GRADES,affixGrade,tierOf} from '../dist/loot.js';
-import {ESSENCE_RECOVERY,ESSENCE_SUCCESS,essenceKey,essenceCount,validEssence,normalizeEssences,recoverEssences,applyEssence,essenceEligibility} from '../dist/essences.js';
+import {ESSENCE_RECOVERY,ESSENCE_SUCCESS,essenceKey,essenceCount,validEssence,normalizeEssences,recoverEssences,applyEssence,essenceEligibility,discardEssence} from '../dist/essences.js';
 import {normalizeLootFilter} from '../dist/loot-filter.js';
+import {craftingPanel,selectEssenceFilter} from '../dist/crafting-ui.js';
 
 test('recovery odds decline as modifier grade rises and each essence holds one modifier', () => {
   assert(ESSENCE_RECOVERY.every((rate, i) => i === 0 || rate < ESSENCE_RECOVERY[i - 1]));
@@ -102,6 +103,39 @@ test('essence application respects the 3 prefix / 3 suffix caps', () => {
   assert(essenceEligibility(item, essence));
   assert(!applyEssence(s, item, essence.id, () => 0).ok);
   assert.equal(s.essences.length, 1);                       // never consumed when ineligible
+});
+
+test('players can discard essences in whole stacks or exact amounts', () => {
+  const s = createGame(1000, 42);
+  const a = {id: 'might', tier: 9, value: 3, min: 2, max: 4}, b = {id: 'cold', tier: 4, value: 20, min: 17, max: 31};
+  s.essences = [{id: essenceKey(a), affix: {...a}, count: 7}, {id: essenceKey(b), affix: {...b}, count: 1}];
+  assert.equal(discardEssence(s, 'missing'), 0);               // unknown stack is a no-op
+  assert.equal(discardEssence(s, essenceKey(a), 0), 0);        // zero discards nothing
+  assert.equal(discardEssence(s, essenceKey(a), -2), 0);       // negative discards nothing
+  assert.equal(discardEssence(s, essenceKey(a), 3), 3);        // exact partial amount
+  assert.equal(s.essences.find(x => x.id === essenceKey(a)).count, 4);
+  assert.equal(discardEssence(s, essenceKey(a)), 4);           // no amount → whole stack
+  assert.equal(s.essences.length, 1);
+  assert.equal(discardEssence(s, essenceKey(b), 99), 1);       // over-amount → everything available
+  assert.equal(s.essences.length, 0);
+  assert.equal(essenceCount(s), 0);
+});
+
+test('crafting UI uses selectable essence cards with filters and discard controls', () => {
+  const s=createGame(1000,42),item=makeItem('hand',0,20,()=>.5);s.inventory=[item];
+  const prefix={id:'might',tier:9,value:3,min:2,max:4},suffix={id:'haste',tier:8,value:8,min:5,max:9};
+  s.essences=[{id:essenceKey(prefix),affix:prefix,count:2},{id:essenceKey(suffix),affix:suffix,count:1}];
+  let html=craftingPanel(s);
+  assert(!html.includes('id="craft-essence"'));
+  assert.equal((html.match(/data-essence="/g)||[]).length,2);
+  assert(html.includes('data-essence-grade="D"'));assert(html.includes('data-essence-kind="compatible"'));
+  assert(html.includes('id="essence-search"'));assert(html.includes('data-discard-essence-one='));assert(html.includes('data-discard-essence='));
+  assert(html.includes('95% success'));
+  selectEssenceFilter('kind','suffix');html=craftingPanel(s);
+  assert.equal((html.match(/data-essence="/g)||[]).length,1);assert(html.includes('of Haste'));
+  selectEssenceFilter('kind','all');selectEssenceFilter('grade','D');html=craftingPanel(s);
+  assert.equal((html.match(/data-essence="/g)||[]).length,1);assert(html.includes('Forceful'));
+  selectEssenceFilter('grade','all');
 });
 
 test('essences survive the save round trip with exact values and stacks', () => {

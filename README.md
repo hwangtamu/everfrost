@@ -80,7 +80,7 @@ node --test tests/*.test.mjs
 
 Typography uses Google Fonts with system fallbacks. All gameplay and image assets are served locally. The optional WebMCP registry exposes a read-only adventure summary and a validated pause/resume control in supporting browsers.
 
-The 98 tests in `tests/` cover 500 map seeds for connectivity and a linear route without shortcuts; 100 automatic expeditions for completion and terrain collision; and live combat attributes, movement/reach/crit formulas, loot filters, ground drops, endless journeys, boss gating, modifiers, loot quality, abilities, prefix/suffix caps, tier gating, orb and essence crafting, crafting costs, save migration, offline rewards, and resource limits.
+The 100 tests in `tests/` cover 500 map seeds for connectivity and a linear route without shortcuts; 100 automatic expeditions for completion and terrain collision; and live combat attributes, movement/reach/crit formulas, loot filters, ground drops, endless journeys, boss gating, modifiers, loot quality, abilities, prefix/suffix caps, tier gating, orb and essence crafting, crafting costs, save migration, offline rewards, and resource limits.
 
 Reference research: [Nordicandia official site](https://www.nordicandia.com/), [official Steam listing](https://store.steampowered.com/app/1503790/Nordicandia/), and Path of Exile's official [Monster Mods FAQ](https://www.pathofexile.com/forum/view-thread/3322408/filter-account-type/staff) and [Item Changes](https://www.pathofexile.com/forum/view-thread/3774647). Mechanics, numbers, setting, and assets here are original implementations.
 

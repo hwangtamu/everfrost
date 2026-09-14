@@ -51,3 +51,14 @@ export function applyEssence(s,item,essenceId,rng=Math.random){
  if(success){const index=item.affixes.findIndex(a=>a.id===affix.id);if(index<0)item.affixes.push(affix);else item.affixes[index]=affix;renameItem(item);s.crafted=(s.crafted||0)+1;}
  return {ok:true,success,chance,affix,item,reason:success?`${ITEM_GRADES[affixGrade(affix)]} essence applied.`:'The essence faded. Your item is unchanged.'};
 }
+
+export function discardEssence(s,id,count){
+ s.essences??=[];const index=s.essences.findIndex(e=>e.id===id);
+ if(index<0)return 0;
+ const stack=s.essences[index];
+ const amount=count===undefined?stack.count:(Number.isSafeInteger(count)&&count>0?Math.min(count,stack.count):0);
+ if(amount<=0)return 0;
+ stack.count-=amount;
+ if(stack.count<=0)s.essences.splice(index,1);
+ return amount;
+}
