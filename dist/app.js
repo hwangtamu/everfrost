@@ -2,7 +2,9 @@ import {teleportVillage,resumeExpedition,startVillageStage,craftKeystone,openRif
 import {villagePanel,keystonePouch,keystoneDetails} from './village-ui.js';
 import {GEAR,GEAR_SLOTS,RING_SLOTS,STAT_LABELS,implicitStats,primaryStat,primaryPower,implicitMarkup} from './gear.js';
 import {equippedPanel,inventoryPanel,equipButtons,salvageCandidates} from './inventory-ui.js';
-import {SAVE_KEY,REGIONS,SKILLS,QUESTS,stats,region,xpRequired,tick,useSkill,equip,salvage,salvageGold,upgrade,upgradeCost,merge,learn,travel,claimQuest,loadGame,saveGame,offlineRewards,startExpedition,movePlayer,collectLoot,journey} from './engine.js';
+import {SAVE_KEY,REGIONS,SKILLS,QUESTS,stats,region,xpRequired,tick,useSkill,equip,salvage,salvageGold,upgrade,upgradeCost,merge,learn,travel,claimQuest,loadGame,saveGame,createGame,offlineRewards,startExpedition,movePlayer,collectLoot,journey} from './engine.js';
+import {CloudSaves,restorePayload} from './cloud-saves.js';
+import {connectAccount} from './firebase.js';
 import {icon} from './icons.js';
 import {Battlefield,drawHero} from './renderer.js';
 import {ITEM_RARITIES} from './loot.js';
@@ -23,7 +25,7 @@ const rarityNames=ITEM_RARITIES;const itemIcon=slot=>GEAR[slot].icon;
 function nav(){return [['adventure','compass','Adventure'],['village','tree','Village'],['hero','user','Character'],['inventory','bag','Inventory'],['forge','hammer','Forge'],['journal','book','Journal']].map(([id,i,label])=>`<button class="nav-item ${view===id?'active':''}" data-view="${id}" aria-label="${label}" aria-current="${view===id?'page':'false'}">${icon(i)}<span>${label}</span>${id==='inventory'?'<b id="bag-count" class="nav-badge">3</b>':''}${id==='hero'?'<i id="talent-dot" hidden></i>':''}</button>`).join('');}
 function mount(){
  $('app').innerHTML=`<aside class="sidebar"><button class="brand" data-view="adventure" aria-label="Everfrost home">${icon('tree')}<span>EVERFROST<small>AN IDLE ADVENTURE</small></span></button><div class="nav-caption">YOUR JOURNEY</div><nav aria-label="Main navigation" id="navigation">${nav()}</nav><div class="sidebar-bottom"><div class="chapter-card">${icon('feather')}<small>CHAPTER I</small><strong>A world beyond<br>the familiar.</strong><span>Your legend starts here.</span></div><button class="nav-item" data-action="help">${icon('info')}<span>How to play</span></button><div class="saved-indicator">${icon('check')}<span id="save-status">Progress saved locally</span></div><small class="version">EVERFROST · v2.5</small></div></aside>
- <div class="app-body"><header class="topbar"><div class="breadcrumb">${icon('tree')}<span>The Northern Realms</span><span class="slash">/</span><strong id="breadcrumb-view">Adventure</strong></div><div class="currencies"><span title="Gold · Earned in battle and spent at the forge">${icon('coin')}<b id="gold">120</b></span><span class="orbs" title="Orbs · Dropped by defeated foes; used at the forge">${icon('sparkles')}<b id="orbs">0</b></span></div><button class="button town-teleport" data-view="village" id="town-teleport">${icon('tree')} Village</button><div class="header-actions"><button class="icon-button" data-action="sound" aria-label="Enable sound" id="sound-button">${icon('mute')}</button><button class="icon-button" data-action="settings" aria-label="Settings">${icon('settings')}</button></div></header>
+ <div class="app-body"><header class="topbar"><div class="breadcrumb">${icon('tree')}<span>The Northern Realms</span><span class="slash">/</span><strong id="breadcrumb-view">Adventure</strong></div><div class="currencies"><span title="Gold · Earned in battle and spent at the forge">${icon('coin')}<b id="gold">120</b></span><span class="orbs" title="Orbs · Dropped by defeated foes; used at the forge">${icon('sparkles')}<b id="orbs">0</b></span></div><button class="button town-teleport" data-view="village" id="town-teleport">${icon('tree')} Village</button><div class="header-actions"><button class="icon-button" data-action="sound" aria-label="Enable sound" id="sound-button">${icon('mute')}</button><button class="icon-button" data-action="settings" aria-label="Settings">${icon('settings')}</button><button class="icon-button" data-action="account" aria-label="Account and cloud saves" id="account-button" title="Account">${icon('user')}</button></div></header>
  <main><section class="page-heading"><div><div class="eyebrow"><span class="small-rule"></span>THE ADVENTURE CONTINUES</div><h1 id="page-title">Into the wild.</h1><p id="page-subtitle">A quiet forest. An unwritten legend. Your next step.</p></div><button class="button map-button" data-action="map">${icon('map')} World map ${icon('arrow')}</button></section>
  <div id="adventure-view"><div class="adventure-layout"><section class="expedition"><div class="section-bar"><div class="region-heading">${icon('compass')}<strong id="region-name">Mistwood</strong><span class="tag">EXPLORING</span></div><button class="text-button" data-action="map" id="stage-label">Stage 1–1 ${icon('down')}</button></div>
  <div class="battlefield" id="battlefield"><canvas id="battle-canvas" aria-label="Live battlefield. Click or tap the clearing to move your hero."></canvas><div class="field-vignette"></div><div class="field-top"><div class="zone-label"><span class="gold-dot"></span><span id="field-location">THE MISTWOOD OUTSKIRTS</span></div><div class="live-label" id="live-label"><i></i> LIVE BATTLE</div></div><div class="enemy-card" id="enemy-card"><div><span id="enemy-name">Mossfang Wolf</span><small id="enemy-level">Lv. 1</small></div><div class="meter enemy-meter"><i id="enemy-hp"></i></div></div><div class="field-health"><div><span>Your health</span><span id="field-hp-text"></span></div><div class="meter health-meter"><i id="field-hp-bar"></i></div></div><div class="field-bottom"><span>${icon('compass')} <span id="field-hint">Tap the clearing to move</span></span><span class="weather">MISTY · 6°C</span></div><div id="battle-overlay" class="battle-overlay" hidden></div></div>
@@ -57,7 +59,49 @@ function update(){
  $('auto-button').disabled=state.location==='village'||(state.location==='rift'&&state.map.completed);
 }
 function toast(message,type='info'){const el=document.createElement('div');el.className=`toast ${type}`;el.innerHTML=`${icon(type==='loot'?'bag':type==='success'?'check':'sparkles')}<span>${esc(message)}</span>`;$('toasts').append(el);setTimeout(()=>el.remove(),4500);}
-function persist(){const ok=saveGame(state);$('save-status').textContent=ok?'Progress saved locally':'Save unavailable in this browser';$('footer-save').innerHTML=ok?`Autosave enabled ${icon('check')}`:'Progress could not be saved';}
+function saveLabel(){if(!cloud?.uid)return 'Progress saved locally';
+ return {synced:'Synced to your account',syncing:'Syncing to your account…',offline:'Saved on this device · syncs when online',conflict:'Save conflict · open Account',choice:'Choose which progress to keep',unavailable:'Cloud save unavailable · playing locally'}[cloud.status]||'Progress saved locally';}
+function persist(){const now=Date.now();let ok;
+ if(cloud?.uid&&cloud.record){state.lastSave=now;ok=cloud.save(JSON.stringify(state));}
+ else ok=saveGame(state,undefined,now);
+ $('save-status').textContent=ok?saveLabel():'Save unavailable in this browser';$('footer-save').innerHTML=ok?`Autosave enabled ${icon('check')}`:'Progress could not be saved';
+ if(cloud?.record?.dirty&&now-lastFlush>15000){lastFlush=now;cloud.flush();}
+}
+let cloud=null,account=null,accountUser=null,lastFlush=0,conflictShown=false;
+function adoptRecord(payload){
+ const restored=restorePayload(payload);
+ if(restored.recovered){toast('The cloud save could not be read. Your browser save is unchanged.');return;}
+ state=restored.state;renderHero();navigate(state.location==='village'?'village':'adventure');update();
+ if(restored.offline)setTimeout(()=>showOffline(restored.offline),600);
+}
+function saveSummary(payload){try{const d=JSON.parse(payload);return `Level ${d.level} · Stage ${d.stage} · ${fmt(d.gold)} gold · ${new Date(d.lastSave||0).toLocaleString([],{dateStyle:'medium',timeStyle:'short'})}`;}catch{return 'Unknown save';}}
+function conflictModal(){conflictShown=true;const remote=cloud.remoteConflict;
+ modal('Two versions of your legend',`<p class="dialog-description">This device and the cloud both have newer progress. Choose which one continues — the other is overwritten.</p><div class="conflict-grid"><div><strong>This device</strong><p>${esc(saveSummary(cloud.record?.payload))}</p></div><div><strong>Cloud save</strong><p>${esc(remote?saveSummary(remote.payload):'Unavailable')}</p></div></div><div class="item-actions"><button class="button" data-action="resolve-cloud">Keep cloud save</button><button class="button gold-button" data-action="resolve-local">Keep this device</button></div>`);}
+function accountModal(){
+ if(!account){modal('Account',`<p class="dialog-description">Cloud saves are unavailable right now. Your progress stays safe in this browser.</p>`);return;}
+ if(!accountUser){modal('Save your legend to the cloud',`<p class="dialog-description">Sign in with Google to keep your progress across devices. This browser's save stays as a local backup.</p><div class="item-actions"><button class="button gold-button" data-action="sign-in">${icon('user')} Sign in with Google</button></div>`);return;}
+ if(cloud?.status==='choice'){modal('Bring this device’s progress?',`<p class="dialog-description">Signed in as <strong>${esc(accountUser.email||'Google account')}</strong>. This account has no cloud save yet.</p><div class="conflict-grid"><div><strong>This device</strong><p>${esc(saveSummary(JSON.stringify(state)))}</p></div><div><strong>Fresh start</strong><p>Begin a new legend on this account.</p></div></div><div class="item-actions"><button class="button" data-action="use-fresh-save">Start fresh</button><button class="button gold-button" data-action="use-device-save">Sync this device</button></div>`);return;}
+ if(cloud?.status==='conflict'){conflictModal();return;}
+ modal('Your account',`<div class="save-info">${icon('user')}<div><strong>${esc(accountUser.email||'Google account')}</strong><p>${esc(saveLabel())}</p></div></div><div class="item-actions"><button class="button" data-action="sync-now">${icon('check')} Sync now</button><button class="button" data-action="sign-out">Sign out</button></div>`);
+}
+function updateAccountButton(){const b=$('account-button');if(!b)return;b.title=accountUser?`Signed in as ${accountUser.email||'Google account'}`:'Sign in to sync saves';b.setAttribute('aria-label',b.title);b.classList.toggle('signed-in',!!accountUser);b.classList.toggle('attention',cloud?.status==='conflict'||cloud?.status==='choice');}
+function reflectCloud(){$('save-status').textContent=saveLabel();updateAccountButton();if(cloud.status==='conflict'&&!conflictShown)conflictModal();if(cloud.status!=='conflict')conflictShown=false;}
+connectAccount().then(fb=>{
+ account=fb;
+ cloud=new CloudSaves({remote:fb.remote,onChange:reflectCloud});
+ fb.onUser(async user=>{
+  accountUser=user;
+  await cloud.connect(user?user.uid:null);
+  updateAccountButton();
+  if(!user){persist();return;}
+  if((cloud.status==='synced'||cloud.status==='offline')&&cloud.record)adoptRecord(cloud.record.payload);
+  else if(cloud.status==='choice')accountModal();
+  else if(cloud.status==='unavailable')toast('Cloud saves are unavailable. Playing on this device only.');
+  persist();
+ });
+ updateAccountButton();
+}).catch(()=>{/* Firebase unreachable: guest mode continues with local saves. */});
+window.addEventListener('online',()=>cloud?.flush());
 function sound(freq=440){if(!state.settings.sound)return;try{audioContext??=new (window.AudioContext||window.webkitAudioContext)();void audioContext.resume();const o=audioContext.createOscillator(),g=audioContext.createGain();o.type='sine';o.frequency.value=freq;g.gain.setValueAtTime(.035,audioContext.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioContext.currentTime+.15);o.connect(g).connect(audioContext.destination);o.start();o.stop(audioContext.currentTime+.15);}catch{/* Sound is optional. */}}
 function processEvents(events){
  let refreshHero=false,refreshView=false;
@@ -140,6 +184,14 @@ document.addEventListener('click',e=>{
   if(view==='forge')renderSecondary();update();persist();}
  if(b.dataset.action==='mod-dictionary')modal('Modifier dictionary',modDictionary(state));
  if(b.dataset.action==='close')$('dialog').close();
+ if(b.dataset.action==='account')accountModal();
+ if(b.dataset.action==='sign-in')account?.signIn().catch(()=>toast('Sign-in did not complete. Try again.'));
+ if(b.dataset.action==='sign-out'){persist();$('dialog').close();account?.signOut();}
+ if(b.dataset.action==='sync-now'){cloud?.flush();$('dialog').close();toast('Syncing to your account…');}
+ if(b.dataset.action==='use-device-save'){if(cloud?.start(JSON.stringify(state))){cloud.flush();$('dialog').close();toast('This device’s progress now syncs to your account.','success');}}
+ if(b.dataset.action==='use-fresh-save'){const fresh=createGame();if(cloud?.start(JSON.stringify(fresh))){state=fresh;$('dialog').close();cloud.flush();renderHero();navigate('adventure');update();toast('A new legend begins on your account.','success');}}
+ if(b.dataset.action==='resolve-local')cloud?.resolve('local').then(ok=>{if(ok){$('dialog').close();toast('This device’s progress now syncs to your account.','success');}else if(cloud.status==='conflict')conflictModal();});
+ if(b.dataset.action==='resolve-cloud')cloud?.resolve('cloud').then(ok=>{if(ok){$('dialog').close();adoptRecord(cloud.record.payload);toast('Cloud progress restored to this device.','success');}else if(cloud.status==='conflict')conflictModal();});
  if(b.dataset.action==='settings')settings();
  if(b.dataset.action==='help')help();
  if(b.dataset.action==='go-forge'){$('dialog').close();navigate('forge');}

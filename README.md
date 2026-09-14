@@ -31,7 +31,25 @@ Open http://localhost:5173. For a phone on the same network, open the computer's
 - Automatic localStorage saves, saved expedition layouts and kill progress, migration of existing heroes and gear, safe recovery from corrupt saves, and device-local offline rewards capped at eight hours.
 - Mobile bottom navigation, desktop sidebar, keyboard focus, dialog focus containment, reduced-motion support, and optional synthesized audio.
 
-Offline rewards approximate 50% of current attack efficiency, accounting for travel and stronger enemies. They grant gold, XP, and orbs without advancing maps, stages, or quests. Progress is local to the browser and origin; local and hosted URLs have separate saves. Clearing browser data removes progress. There is one Vanguard class, solo play, four regional palettes, three unique equipment powers, and a shared guardian slam pattern. This game does not include accounts, cloud saves, multiplayer, or the full content of its inspirations.
+Offline rewards approximate 50% of current attack efficiency, accounting for travel and stronger enemies. They grant gold, XP, and orbs without advancing maps, stages, or quests. Progress is local to the browser and origin; local and hosted URLs have separate saves. Clearing browser data removes progress. There is one Vanguard class, solo play, four regional palettes, three unique equipment powers, and a shared guardian slam pattern. This game does not include multiplayer or the full content of its inspirations.
+
+## Cloud saves (Firebase)
+
+The hosted build supports optional Google sign-in for cross-device saves, backed by Firebase Authentication and Cloud Firestore. Signing in is not required — the game always keeps a localStorage backup and plays fully offline.
+
+- Each account owns one document, `players/{uid}`: `{version, revision, payload, updatedAt}`. `payload` is the same JSON save used locally.
+- `revision` increments on every write inside a Firestore transaction, so two devices can never silently overwrite each other. On a mismatch the game asks which progress to keep.
+- First sign-in offers to import the browser's progress or start fresh; a returning account's save replaces the guest session. Signing out never exposes account progress to the guest save.
+- Security rules (`firestore.rules`) restrict each document to its owner, require `revision == old + 1`, cap payload size, and forbid deletes.
+- Firebase web configuration lives in `dist/firebase.js`; the browser API key is a public identifier — access control is enforced by the rules.
+
+### Firebase deployment
+
+```sh
+firebase deploy --only firestore:rules,hosting   # uses .firebaserc → everfrost-830cb
+```
+
+`firebase.json` serves `dist/` on Hosting with SPA rewrites. Enable the Google provider in Authentication and add any extra hosting domains (e.g. a GitHub Pages URL) under Authentication → Settings → Authorized domains.
 
 ## Documentation
 
@@ -45,6 +63,7 @@ node --test tests/*.test.mjs
 
 - `dist/engine.js`: dependency-free game rules and persistence, tested using Node's built-in runner.
 - `dist/app.js`: UI state, views, dialogs, sound, and progressive WebMCP support.
+- `dist/cloud-saves.js` and `dist/firebase.js`: account save protocol (revision-checked records, conflict resolution, offline cache) and the lazily loaded Firebase adapter.
 - `dist/world.js`: deterministic linear map generation, paths, collision, and exploration.
 - `dist/monsters.js` and `dist/loot.js`: monster tiers/modifiers, drop tables, and the tiered prefix/suffix modifier definitions.
 - `dist/crafting.js` and `dist/crafting-ui.js`: POE-style orb services, the deterministic crafting bench, and its forge panel.

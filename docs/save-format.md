@@ -130,6 +130,34 @@ floored to `max(stage, maxStage)`.
 `saveGame` swallows storage failures (`quota`, private mode) and reports the
 outcome through the sidebar indicator, so the game keeps running without
 persistence.
+
+## Cloud saves (Firebase)
+
+Optional Google sign-in adds a second persistence layer (`dist/cloud-saves.js`,
+`dist/firebase.js`). Each account owns one Firestore document,
+`players/{uid}`:
+
+```js
+{version: 1, revision: <int>, payload: <save JSON string>, updatedAt: <timestamp>}
+```
+
+- `payload` is the exact same JSON that `saveGame` writes locally; it is
+  validated with `validatePayload` before upload and goes through the normal
+  `loadGame` whitelist + migration path on restore.
+- `revision` starts at 1 and increments inside a transaction; writes include
+  the expected revision, so a stale device gets a `SaveConflict` instead of
+  clobbering newer progress. The player then chooses which copy continues.
+- A per-account local mirror lives at `everfrost.cloud.<uid>` and carries a
+  `dirty` flag for work uploaded late (offline play, dropped connection). On
+  reconnect a dirty mirror is flushed, or surfaces as a conflict if the cloud
+  moved ahead.
+- The guest save (`everfrost.save.v1`) is never written while signed in, so it
+  stays a genuine pre-sign-in backup. First sign-in on an account with no
+  cloud save asks whether to import this device's progress or start fresh.
+- Firestore rules (`firestore.rules`) allow only the owner to read/write their
+  document, enforce `revision == old + 1`, cap payload size, and forbid
+  deletes. Cloud saves are client-authoritative — they provide sync, not
+  anti-cheat.
 ## Combat and loot additions
 
 Combat attributes are derived from equipment, talents, and temporary effects, not independently persisted totals. New `lootFilter` settings default to all rarities and slots, minimum item level 1, no required affixes, and unique override on; drops that don't match the filter are always converted to gold on pickup. `groundLoot` stores `{ id, item, x, y, age }` for each pending drop. Load validation discards malformed or duplicate pending records and preserves valid items; map changes and offline collection settle pending rewards once. Saves lacking these fields receive their defaults without resetting the character or map.
