@@ -1,0 +1,36 @@
+# Publishes ./dist to GitHub Pages, so Everfrost runs at
+# https://<user>.github.io/<repo>/ (project site) or the repo root of a
+# <user>.github.io repository. No build step: dist/ is the complete app.
+name: Deploy to GitHub Pages
+
+on:
+  push:          # deploy whatever branch is pushed; adjust if you prefer main only
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

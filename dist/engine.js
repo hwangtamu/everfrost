@@ -1,7 +1,7 @@
 import {makeKeystone,validKeystone,rollKeystone,riftBonuses,rewardQuantity,makeRiftMap,RIFT_WAVES,KEYSTONE_RECIPES} from './keystones.js';
-import {GEAR,GEAR_SLOTS,LEGACY_SLOTS,canonicalSlot,rollImplicits,implicitStats,migrateGear} from './gear.js';
+import {GEAR,GEAR_SLOTS,RING_SLOTS,LEGACY_SLOTS,canonicalSlot,rollImplicits,implicitStats,migrateGear} from './gear.js';
 import {generateMap, seededRandom, distance, walkable, findPath, moveAlong, reveal, hasLineOfSight} from './world.js';
-import {AFFIXES, UNIQUE_EFFECTS, rollAffixes, affixBonuses, lootRarity} from './loot.js';
+import {AFFIXES, UNIQUE_EFFECTS, rollAffixes, affixBonuses, lootRarity, uniquesForSlot, uniqueBonuses} from './loot.js';
 import {ENEMY_TIERS, MODIFIERS, rollModifiers} from './monsters.js';
 import {normalizeLootFilter,matchesLootFilter} from './loot-filter.js';
 import {CRAFT_OPERATIONS} from './crafting.js';
@@ -28,9 +28,12 @@ export const journey = s => Math.floor((s.stage-1)/20)+1;
 export const region = s => REGIONS[regionIndex(s)];
 export const xpRequired = level => Math.round(45 * Math.pow(level, 1.38));
 export const BASE_COMBAT = {movementSpeed:5.8, attackInterval:1.1, attackRange:1.9, critMultiplier:1.8};
+const hasUnique = (s,key) => Object.values(s.equipment).some(i=>i?.unique===key);
 
 export function stats(s) {
-  const eq = Object.values(s.equipment), a = affixBonuses(eq);
+  const eq = Object.values(s.equipment), a = affixBonuses(eq), u = uniqueBonuses(eq);
+  for (const stat in u) a[stat] = (a[stat]||0) + u[stat];
+  if (s.effects?.soulgorge > 0) { a.haste += 25; a.movement += 25; }
   const bonus = stat => eq.reduce((n,item) => Math.round((n+(implicitStats(item)[stat]||0))*10)/10,0);
   const attackSpeed = (1 + Math.min(150, a.haste) / 100) / BASE_COMBAT.attackInterval;
   return {
@@ -52,7 +55,7 @@ export function combatStats(s) {
   const p = stats(s), chill = s.effects?.chill > 0 ? .75 : 1;
   p.movementSpeed *= chill; p.attackSpeed *= chill; p.attackInterval = 1 / p.attackSpeed;
   p.averageHit = (p.attack+p.fire+p.cold+p.lightning) * (1+p.crit*(p.critMultiplier-1));
-  p.dps = p.averageHit * p.attackSpeed * (Object.values(s.equipment).some(i=>i?.unique==='echo')?1.25:1);
+  p.dps = p.averageHit * p.attackSpeed * (hasUnique(s,'echo')?1.25:1);
   return p;
 }
 
@@ -81,10 +84,12 @@ export function makeItem(slot, rarity = 0, stage = 1, rng = Math.random) {
   stage=Number.isSafeInteger(stage)&&stage>0?stage:1;
   const implicits=rollImplicits(slot,stage,rng);
   const affixes = rollAffixes(slot, rarity, stage, rng);
+  const pool = rarity === 3 ? uniquesForSlot(slot) : [];
+  const unique = pool.length ? pool[Math.floor(rng()*pool.length)] : null;
   const prefix = affixes.find(a => AFFIXES[a.id].kind === 'prefix');
   const suffix = affixes.find(a => AFFIXES[a.id].kind === 'suffix');
-  const name = rarity === 3 ? UNIQUE_EFFECTS[slot].name+' '+GEAR[slot].name : `${prefix ? AFFIXES[prefix.id].name + ' ' : ''}${GEAR[slot].name}${suffix ? ' ' + AFFIXES[suffix.id].name : ''}`;
-  return {id:id(), slot, rarity, name, itemLevel:stage, implicits, upgrade:0, affixes, unique:rarity === 3 ? UNIQUE_EFFECTS[slot].id : null};
+  const name = unique ? unique.name+' '+GEAR[slot].name : `${prefix ? AFFIXES[prefix.id].name + ' ' : ''}${GEAR[slot].name}${suffix ? ' ' + AFFIXES[suffix.id].name : ''}`;
+  return {id:id(), slot, rarity, name, itemLevel:stage, implicits, upgrade:0, affixes, unique:unique?unique.id:null};
 }
 
 export function createGame(now = Date.now(), seed = Math.floor(Math.random() * 4294967296)) {
@@ -280,7 +285,8 @@ export function defeatEnemy(s,enemy,events = [],rng = Math.random) {
     events.push({type:'orb', orb, name: CRAFT_OPERATIONS[orb].name});
     addLog(s, `${CRAFT_OPERATIONS[orb].name} dropped.`,'loot');
   }
-  gainXp(s,xp,events); s.hp = Math.min(stats(s).maxHp,s.hp + stats(s).maxHp*.035);
+  gainXp(s,xp,events); s.hp = Math.min(stats(s).maxHp,s.hp + stats(s).maxHp*(.035+(hasUnique(s,'gravebind')?.06:0)));
+  if (hasUnique(s,'soulgorge')) s.effects.soulgorge = 6;
   events.push({type:'kill',gold,xp,boss:enemy.boss,tier:enemy.tier,x:enemy.x,y:enemy.y});
   addLog(s,`${ENEMY_TIERS[enemy.tier].label} ${enemy.name} defeated · +${gold} gold · +${xp} XP`);
   const dropChance = {normal:.30,magic:.70,rare:1,unique:1}[enemy.tier];
@@ -324,13 +330,17 @@ function hitEnemy(s,enemy,physical,elemental,events,rng,critical = false) {
 
 function strikeEnemy(s,enemy,physical,elemental,events,rng) {
   const p=stats(s),critical=rng()<p.crit,multiplier=critical?p.critMultiplier:1;
+  if (hasUnique(s,'stormbrand')) elemental += physical*.3;
+  if (hasUnique(s,'executioner') && enemy.hp <= enemy.maxHp*.35) { physical *= 1.8; elemental *= 1.8; }
   hitEnemy(s,enemy,physical*multiplier,elemental*multiplier,events,rng,critical);
 }
 
 export function hurtHero(s,amount,element = 'physical',events = [],critical = false) {
   const p = stats(s);
   let damage = element === 'physical' ? Math.max(.2,amount-p.defense*.30) : amount*(1-p.resist/100);
-  if (Object.values(s.equipment).some(i=>i?.unique==='lastLight') && s.hp < p.maxHp*.35) damage *= .75;
+  if (hasUnique(s,'lastLight') && s.hp < p.maxHp*.35) damage *= .75;
+  if (hasUnique(s,'stoneheart')) damage *= .88;
+  if (element !== 'physical' && hasUnique(s,'emberwalk')) damage *= .8;
   s.hp = Math.max(0,s.hp-damage);
   if (damage >= 1) events.push({type:'hurt',value:Math.ceil(damage),x:s.player.x,y:s.player.y,element,critical});
   return damage;
@@ -339,8 +349,10 @@ export function hurtHero(s,amount,element = 'physical',events = [],critical = fa
 function advanceStep(s,dt,events,rng) {
   if(s.location==='village')return;
   s.playTime += dt;
-  for (const skill of SKILLS) s.cooldowns[skill.id] = Math.max(0,s.cooldowns[skill.id]-dt);
+  const cooldownRate = hasUnique(s,'sagesCrown') ? 1.3 : 1;
+  for (const skill of SKILLS) s.cooldowns[skill.id] = Math.max(0,s.cooldowns[skill.id]-dt*cooldownRate);
   s.effects.chill = Math.max(0,s.effects.chill-dt);
+  if (s.effects.soulgorge) s.effects.soulgorge = Math.max(0,s.effects.soulgorge-dt);
   if (!s.auto) return;
   advanceLoot(s,dt,events);
   s.died = false;
@@ -378,7 +390,7 @@ function advanceStep(s,dt,events,rng) {
   if (enemy?.hp > 0 && (!enemy.boss||s.map.bossUnlocked) && withinReach(s,player,enemy,p.attackRange) && s.attackTimer+1e-9 >= p.attackInterval) {
     s.attackTimer = Math.max(0,s.attackTimer-p.attackInterval); s.attackCount++;
     strikeEnemy(s,enemy,p.attack,p.fire+p.cold+p.lightning,events,rng);
-    if (Object.values(s.equipment).some(i=>i?.unique==='echo') && s.attackCount%4 === 0 && enemy.hp > 0) strikeEnemy(s,enemy,p.attack,p.fire+p.cold+p.lightning,events,rng);
+    if (hasUnique(s,'echo') && s.attackCount%4 === 0 && enemy.hp > 0) strikeEnemy(s,enemy,p.attack,p.fire+p.cold+p.lightning,events,rng);
   }
   for (const e of livingEnemies(s)) {
     if (!e.awakened && withinReach(s,e,player,Math.max(5.5,p.attackRange+1))) e.awakened = true;
@@ -395,8 +407,9 @@ function advanceStep(s,dt,events,rng) {
       e.attackTimer=Math.max(0,e.attackTimer-ep.attackInterval);
       const critical=rng()<ep.crit;
       const dealt=hurtHero(s,ep.attack*(critical?ep.critMultiplier:1),'physical',events,critical);
+      if(dealt>0&&hasUnique(s,'spikeward'))hitEnemy(s,e,dealt*.35,0,events,rng);
       if(e.modifiers.includes('vampiric'))e.hp=Math.min(e.maxHp,e.hp+dealt*.2);
-      if(e.modifiers.includes('chilling'))s.effects.chill=3;
+      if(e.modifiers.includes('chilling')&&!hasUnique(s,'ironstride'))s.effects.chill=3;
       events.push({type:'enemyAttack',x:e.x,y:e.y,targetX:player.x,targetY:player.y,critical});
     }
     if(e.modifiers.includes('burningAura')&&distance(e,player)<3) hurtHero(s,(1+s.stage*.3)*dt,'fire');
@@ -426,13 +439,19 @@ export function useSkill(s,id,rng=Math.random){
   if(id!=='mend'&&!targets.length)return [];
   s.cooldowns[id]=def.cooldown;
   const events=[{type:'skill',id,x:s.player.x,y:s.player.y}];
-  if(id==='mend'){s.hp=Math.min(p.maxHp,s.hp+p.maxHp*(Object.values(s.equipment).some(i=>i?.unique==='wildheart')?.60:.45));s.effects.chill=0;events.push({type:'heal',x:s.player.x,y:s.player.y});}
-  else for(const enemy of targets){if(id==='storm')strikeEnemy(s,enemy,0,p.attack*5+p.lightning*5,events,rng);else strikeEnemy(s,enemy,p.attack*3,(p.fire+p.cold+p.lightning)*3,events,rng);}
+  if(id==='mend'){s.hp=Math.min(p.maxHp,s.hp+p.maxHp*(hasUnique(s,'wildheart')?.60:.45));s.effects.chill=0;events.push({type:'heal',x:s.player.x,y:s.player.y});}
+  else for(const enemy of targets){const mult=hasUnique(s,'spellweave')?1.25:1;if(id==='storm')strikeEnemy(s,enemy,0,(p.attack*5+p.lightning*5)*mult,events,rng);else strikeEnemy(s,enemy,p.attack*3*mult,(p.fire+p.cold+p.lightning)*3*mult,events,rng);}
   if(!s.map.completed)selectTarget(s);
   return events;
 }
 
-export function equip(s,id){const i=s.inventory.findIndex(x=>x.id===id);if(i<0)return false;const item=s.inventory.splice(i,1)[0],old=s.equipment[item.slot];s.equipment[item.slot]=item;if(old)s.inventory.push(old);s.hp=Math.min(s.hp,stats(s).maxHp);return true;}
+export function equip(s,id,slot){
+ const i=s.inventory.findIndex(x=>x.id===id);if(i<0)return false;
+ const item=s.inventory[i];slot??=item.slot;
+ if(slot!==item.slot&&!(RING_SLOTS.includes(slot)&&RING_SLOTS.includes(item.slot)))return false;
+ const old=s.equipment[slot];s.inventory.splice(i,1);item.slot=slot;s.equipment[slot]=item;
+ if(old)s.inventory.push(old);s.hp=Math.min(s.hp,stats(s).maxHp);return true;
+}
 export function salvage(s,id){const i=s.inventory.findIndex(x=>x.id===id);if(i<0)return false;const item=s.inventory.splice(i,1)[0];s.gold+=salvageGold(item);return true;}
 export function salvageGold(item){return Math.round((2+item.rarity*3+item.upgrade)*(1+(item.itemLevel||1)*.25));}
 export function upgradeCost(item){return {gold:40*(item.upgrade+1)};}
@@ -611,6 +630,7 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
     s.orbs={...zeroOrbs(),...Object.fromEntries(Object.entries(data.orbs||{}).filter(([k,v])=>CRAFT_OPERATIONS[k]&&Number.isInteger(v)&&v>=0))};
     delete s.shards;
     s.lootFilter=normalizeLootFilter(data.lootFilter);
+    if(!RING_SLOTS.some(slot=>Object.hasOwn(data.equipment,slot))&&GEAR_SLOTS.filter(slot=>!RING_SLOTS.includes(slot)).every(slot=>s.lootFilter.slots.includes(slot)))s.lootFilter.slots=[...GEAR_SLOTS];
     s.location=['village','rift'].includes(data.location)?data.location:'expedition';
     s.riftPortal=validKeystone(data.riftPortal)?data.riftPortal:null;
     s.rift=data.rift&&validKeystone(data.rift.keystone)?data.rift:null;

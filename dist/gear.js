@@ -8,9 +8,12 @@ export const GEAR = {
   hand:{label:'Hand',name:'Vanguard Gauntlets',icon:'sword',rates:{attack:5.6,defense:.4,maxHp:2}},
   belt:{label:'Belt',name:'Trailkeeper Belt',icon:'shield',rates:{maxHp:6,defense:.4}},
   leg:{label:'Leg',name:'Sentinel Greaves',icon:'shield',rates:{defense:1.2,maxHp:4}},
-  foot:{label:'Foot',name:'Pathfinder Boots',icon:'compass',rates:{defense:.5,maxHp:2}}
+  foot:{label:'Foot',name:'Pathfinder Boots',icon:'compass',rates:{defense:.5,maxHp:2}},
+  leftRing:{label:'Left ring',name:'Runic Band',icon:'ring',rates:{attack:.8,maxHp:4}},
+  rightRing:{label:'Right ring',name:'Runic Band',icon:'ring',rates:{attack:.8,maxHp:4}}
 };
 export const GEAR_SLOTS=Object.keys(GEAR);
+export const RING_SLOTS=['leftRing','rightRing'];
 export const LEGACY_SLOTS={weapon:'hand',armor:'chest',charm:'neck'};
 export const STAT_LABELS={attack:'Damage',defense:'Armor',maxHp:'Life'};
 export const canonicalSlot=slot=>LEGACY_SLOTS[slot]||slot;

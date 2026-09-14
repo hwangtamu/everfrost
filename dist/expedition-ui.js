@@ -60,7 +60,7 @@ export function updateExpedition(s){
     }
   }
   $('field-hp-text').textContent=`${Math.ceil(s.hp)} / ${p.maxHp}`;
-  html('combat-statuses',`${s.effects.chill>0?`<span class="chilled-status">${icon('gem')} Chilled ${Math.ceil(s.effects.chill)}s</span>`:''}${s.hazards.length?`<span class="danger-status">${icon('zap')} Move out of the marked area</span>`:''}`);
+  html('combat-statuses',`${s.effects.chill>0?`<span class="chilled-status">${icon('gem')} Chilled ${Math.ceil(s.effects.chill)}s</span>`:''}${s.effects.soulgorge>0?`<span class="buff-status">${icon('star')} Soulgorge ${Math.ceil(s.effects.soulgorge)}s</span>`:''}${s.hazards.length?`<span class="danger-status">${icon('zap')} Move out of the marked area</span>`:''}`);
   if(!s.auto&&s.died){
     if($('battle-overlay').querySelector('h3')?.textContent!=='Back at camp.')$('battle-overlay').innerHTML=`<div>${icon('shield')}<h3>Back at camp.</h3><p>Your map progress is safe.<br>Improve your gear or return to an earlier stage.</p><button class="button gold-button" data-action="auto">${icon('play')} Return to the hunt</button></div>`;
   }

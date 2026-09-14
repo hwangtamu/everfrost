@@ -41,16 +41,18 @@ separate saves. Clearing browser data removes progress.
 ```js
 {
   id,               // crypto.randomUUID()
-  slot: 'head'|'neck'|'shoulder'|'chest'|'wrist'|'hand'|'belt'|'leg'|'foot',
+  slot: 'head'|'neck'|'shoulder'|'chest'|'wrist'|'hand'|'belt'|'leg'|'foot'|'leftRing'|'rightRing',
   rarity: 0-3,      // Normal/Magic/Rare/Unique
   name,             // e.g. "Forceful Iron Longsword of Haste"
   itemLevel,        // stage of the drop / highest merged contributor
   implicits,        // per-stat base rolls; +10% of base per upgrade
   upgrade: 0..,     // forge level
   affixes: [{id, tier, value, min, max}],  // tier 1 = strongest; min/max from the tier
-  unique: 'echo'|'lastLight'|'wildheart'|null
+  unique: <key of UNIQUE_EFFECTS in loot.js>|null  // e.g. 'echo', 'soulgorge'
 }
 ```
+
+Ring slots are added as `null` when loading older saves. A ring's `slot` becomes the selected finger when equipped; its identity, implicits, affixes, and upgrade rank are preserved. Older filters that selected every previous slot expand to include rings, while restricted filters retain their choices. No save-version reset is required.
 
 ### Enemy schema (in-flight expeditions)
 

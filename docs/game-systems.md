@@ -200,9 +200,24 @@ UI control).
 
 `loot-filter.js` evaluates minimum rarity, permitted slots, minimum item level, and an OR match across selected affix families; these groups combine with AND. `alwaysShowUnique` bypasses those conditions. The filter gates pickups: unmatched drops convert to gold (the normal salvage value) and are logged separately, while matching drops enter the satchel. Existing inventory items are never processed retroactively. Inventory capacity remains 48 with automatic salvage on overflow.
 
-## Nine-slot gear and implicit stats
+## Eleven-slot gear and implicit stats
 
-Equipment slots: head, neck, shoulder, chest, wrist, hand, belt, leg, foot. `gear.js` defines each slot's damage, armor, and life rates. Each implicit rolls `rate × itemLevel × uniform(0.95, 1.05)`, rounded to one decimal. Rarity does not multiply base stats. All equipped implicits contribute to combat along with explicit modifiers. Each forge rank adds 10% of the original base values; orb/bench crafting changes only explicits. Merging preserves the highest contributor item level (or current stage) and upgrade rank, with a fresh implicit roll. Unique powers work in any applicable slot and do not stack duplicate powers.
+Equipment slots: head, neck, shoulder, chest, wrist, hand, belt, leg, foot, leftRing, rightRing. Runic Bands fit either finger and share attack/life implicits and affix pools. `gear.js` defines each slot's damage, armor, and life rates. Each implicit rolls `rate × itemLevel × uniform(0.95, 1.05)`, rounded to one decimal. Rarity does not multiply base stats. All equipped implicits contribute to combat along with explicit modifiers. Each forge rank adds 10% of the original base values; orb/bench crafting changes only explicits. Merging preserves the highest contributor item level (or current stage) and upgrade rank, with a fresh implicit roll. Unique powers work in any applicable slot and do not stack duplicate powers. `UNIQUE_EFFECTS` in `loot.js` holds a pool of named powers per slot — each unique drop rolls one power from its slot's pool, and the item name is `power name + base name`. Powers either carry `stats` (flat or per-item-level bonuses folded into `stats()` like affixes) or a special mechanic applied by id in the engine:
+
+The catalog contains 44 distinct uniques: six each for hand and neck, four for each other gear type. Both fingers share the same four ring uniques. Unique rarity drop chances are unchanged; selection within each slot pool is uniform.
+
+- hand: Dawn's Echo (every fourth attack strikes twice), Stormbrand (+30% of attack as lightning on strikes), Executioner's Oath (+80% damage below 35% enemy health), Frostfang (cold damage and reach), Bloodreaver (attack and leech), Sunbreaker (fire damage and critical multiplier)
+- neck: Wildheart (healing skills +15% max health), Eye of the Tempest (+15% resist, +8% crit), Crimson Chalice (4% leech, regen per item level), Winter Oracle (cold damage and resistance), Stormglass (lightning damage and attack speed), Oath of Giants (life and reach)
+- head: Sage's Crown (cooldowns recover 30% faster), Starkonja's Pelt (+8% crit, +12% attack and movement speed), Ravenlord (critical chance and multiplier), Hollow Monarch (life and regeneration)
+- shoulder: Spikeward (reflects 35% of physical damage taken), Aegis of Dawn (defense per item level, +10% resist), Ashwing (fire damage and movement), Glacial Bastion (cold damage and defense)
+- chest: Last Light (25% less damage below 35% health), Stoneheart (12% less damage from all sources), Briarheart (life and regeneration), Void Carapace (defense and resistance)
+- wrist: Warbringer (attack per item level, 3% leech), Spellweave (skills +25% damage), Duelist's Vow (attack speed and reach), Thundercoil (lightning damage and critical chance)
+- belt: Soulgorge (+25% attack/movement speed for 6s on kill), Gravebind (+6% max health on kill), Serpent Coil (leech and attack speed), Hearthkeeper (regeneration and life)
+- leg: Ironstride (chill immunity, +15% movement), Titanplate (defense and life per item level), Outrider (movement and attack), Duskwarden (resistance and life)
+- foot: Windrunner (+45% movement speed), Emberwalk (20% less elemental damage taken), Ghoststep (movement and reach), Dawnmarch (movement, regeneration, and defense)
+- either ring: Ember Signet (fire damage per level, +5% crit), Moonwell (regeneration per level, +12% resistance), Rimecircle (cold damage and critical multiplier), Stormknot (lightning damage and attack speed). Wearing two of the same power uses only the highest-item-level power; both rings still contribute implicits and affixes.
+
+The inventory groups equipped gear into Armor, Hands, and Jewelry. Satchel cards expose inspection, direct equip (either finger for rings), and salvage, with sorting by newest, rarity, item level, or slot. Bulk normal/magic salvage only includes unupgraded non-unique items in the active slot filter. Confirmation snapshots item IDs and displays names and total gold, so later drops are not accidentally included. Individual rare, unique, or upgraded items also require confirmation.
 
 ## Village and keystone rifts
 

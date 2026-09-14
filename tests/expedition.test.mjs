@@ -2,8 +2,8 @@ import {GEAR_SLOTS} from '../dist/gear.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateMap,findPath,walkable,seededRandom,distance} from '../dist/world.js';
-import {createGame,tick,stats,startExpedition,defeatEnemy,effectiveDamage,activeAuras,hurtHero,useSkill,movePlayer,saveGame,loadGame,SAVE_KEY,makeItem,collectLoot} from '../dist/engine.js';
-import {AFFIXES,rollAffixes,lootRarity} from '../dist/loot.js';
+import {createGame,tick,stats,startExpedition,defeatEnemy,effectiveDamage,activeAuras,hurtHero,useSkill,movePlayer,saveGame,loadGame,SAVE_KEY,makeItem,makeEnemy,collectLoot} from '../dist/engine.js';
+import {AFFIXES,rollAffixes,lootRarity,UNIQUE_EFFECTS,uniquesForSlot,uniqueBonuses} from '../dist/loot.js';
 import {MODIFIERS} from '../dist/monsters.js';
 import {enemyDetails,expeditionOverview,itemAffixDetails} from '../dist/expedition-ui.js';
 
@@ -152,7 +152,7 @@ test('affixes and unique powers affect actual hero stats and abilities',()=>{
   assert(stats(s).attackInterval<base.attackInterval);assert.equal(stats(s).leech,3);
   s.equipment.chest.unique='lastLight';s.hp=20;
   assert.equal(hurtHero(s,20,'fire'),15);
-  s.level=3;s.equipment.neck=makeItem('neck',3,1,fixed);s.hp=1;s.effects.chill=3;
+  s.level=3;s.equipment.neck=makeItem('neck',3,1,fixed);s.equipment.neck.unique='wildheart';s.hp=1;s.effects.chill=3;
   useSkill(s,'mend',fixed);assert.equal(s.effects.chill,0);assert.equal(s.hp,1+stats(s).maxHp*.6);
 });
 
@@ -201,6 +201,98 @@ test('enemy and loot dossiers describe the current rules and escape names',()=>{
   assert(enemyDetails(s).includes('Guaranteed magic-or-better loot'));
   assert(expeditionOverview(s).includes('one winding trail'));
   const item=makeItem('hand',3,1,fixed);
-  assert(itemAffixDetails(item,s).includes('Every fourth basic attack'));
+  assert(itemAffixDetails(item,s).includes(UNIQUE_EFFECTS[item.unique].description));
   assert(itemAffixDetails(item,s).includes('If equipped'));
+});
+
+// Bare unique item: no implicits or affixes, so assertions isolate the power.
+const uniq=(slot,key,itemLevel=10)=>({id:`u-${key||'none'}-${slot}`,slot,rarity:3,name:key?UNIQUE_EFFECTS[key].name+' '+slot:slot,itemLevel,implicits:{},upgrade:0,affixes:[],unique:key});
+// Starting hand/chest roll with Math.random, so paired states must be normalized first.
+const clearGear=g=>{g.equipment=Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null]));return g;};
+
+test('unique items roll a slot-appropriate power and apply their stats',()=>{
+  const rng=seededRandom(7),seen=new Set();
+  for(const slot of GEAR_SLOTS){
+    const pool=uniquesForSlot(slot);
+    assert(pool.length>=2,`${slot} should offer multiple unique powers`);
+    for(let i=0;i<40;i++){
+      const it=makeItem(slot,3,10,rng);
+      assert(pool.some(u=>u.id===it.unique));seen.add(it.unique);
+      assert(it.name.startsWith(UNIQUE_EFFECTS[it.unique].name));
+    }
+  }
+  assert(seen.size>=12);
+
+  const s=clearGear(createGame(1000,42)),base=stats(s);
+  s.equipment.neck=uniq('neck','tempestEye');
+  s.equipment.leg=uniq('leg','titanplate');
+  s.equipment.foot=uniq('foot','windrunner');
+  assert.equal(uniqueBonuses([s.equipment.neck]).resist,15);
+  assert.equal(stats(s).resist,base.resist+15);
+  assert.equal(stats(s).crit,base.crit+.08);
+  assert.equal(stats(s).defense,base.defense+20);assert.equal(stats(s).maxHp,base.maxHp+60);
+  assert(Math.abs(stats(s).movementSpeed-base.movementSpeed*1.45)<1e-9);
+});
+
+test('mechanical unique powers change combat outcomes',()=>{
+  // Damage-taken reductions.
+  const s=createGame(1000,42);s.hp=1000;
+  s.equipment.chest=uniq('chest',null);
+  const phys=hurtHero(s,100,'physical');
+  s.equipment.chest.unique='stoneheart';
+  assert(Math.abs(hurtHero(s,100,'physical')-phys*.88)<1e-9);
+  s.equipment.chest.unique=null;s.equipment.foot=uniq('foot','emberwalk');
+  assert.equal(hurtHero(s,100,'fire'),80);
+
+  // Soulgorge: a kill grants a 6-second speed buff that decays.
+  const t=createGame(1000,7);t.equipment.belt=uniq('belt','soulgorge');
+  const aspd=stats(t).attackSpeed;
+  defeatEnemy(t,t.enemies.find(e=>e.tier==='normal'),[],fixed);
+  assert(t.effects.soulgorge>0);assert(stats(t).attackSpeed>aspd);
+  t.auto=false;for(let i=0;i<14;i++)tick(t,.5,fixed);
+  assert(!t.effects.soulgorge);
+
+  // Gravebind: kills restore extra health (identical states, no level-up).
+  const g1=clearGear(createGame(1000,9)),g2=clearGear(createGame(1000,9));g1.level=g2.level=50;
+  g2.equipment.belt=uniq('belt','gravebind');
+  g1.hp=g2.hp=stats(g1).maxHp/2;
+  defeatEnemy(g1,g1.enemies.find(e=>e.tier==='normal'),[],fixed);
+  defeatEnemy(g2,g2.enemies.find(e=>e.tier==='normal'),[],fixed);
+  assert(Math.abs(g2.hp-g1.hp-stats(g1).maxHp*.06)<1e-9);
+
+  // Sage's Crown: cooldowns recover faster.
+  const c1=createGame(1000,5),c2=createGame(1000,5);c1.auto=c2.auto=false;c1.level=c2.level=5;
+  c2.equipment.head=uniq('head','sagesCrown');
+  useSkill(c1,'mend',fixed);useSkill(c2,'mend',fixed);
+  for(let i=0;i<10;i++){tick(c1,.1,fixed);tick(c2,.1,fixed);}
+  assert(c1.cooldowns.mend-c2.cooldowns.mend>.29);
+
+  // Stormbrand and Executioner's Oath: strikes hit harder.
+  const a=clearGear(createGame(1000,17)),b=clearGear(createGame(1000,17));
+  a.equipment.hand=uniq('hand',null);b.equipment.hand=uniq('hand','stormbrand');
+  for(const g of [a,b]){const e=g.enemies.find(x=>x.tier==='normal');e.x=g.player.x+1;e.y=g.player.y;e.maxHp=e.hp=1e5;g.enemies=[e];}
+  useSkill(a,'cleave',fixed);useSkill(b,'cleave',fixed);
+  assert(1e5-b.enemies[0].hp>1e5-a.enemies[0].hp);
+  const d=clearGear(createGame(1000,23)),x=clearGear(createGame(1000,23));
+  d.equipment.hand=uniq('hand',null);x.equipment.hand=uniq('hand','executioner');
+  for(const g of [d,x]){const e=g.enemies.find(y=>y.tier==='normal');e.x=g.player.x+1;e.y=g.player.y;e.maxHp=1e5;e.hp=3e4;g.enemies=[e];}
+  useSkill(d,'cleave',fixed);useSkill(x,'cleave',fixed);
+  assert(3e4-x.enemies[0].hp>(3e4-d.enemies[0].hp)*1.5);
+
+  // Ironstride: chilling attackers cannot chill you. Spikeward reflects.
+  const h1=clearGear(createGame(1000,11)),h2=clearGear(createGame(1000,11));
+  h2.equipment.leg=uniq('leg','ironstride');
+  const r1=clearGear(createGame(1000,13)),r2=clearGear(createGame(1000,13));
+  r2.equipment.shoulder=uniq('shoulder','spikeward');
+  for(const g of [h1,h2]){
+    const e=makeEnemy(g,'normal',{x:g.player.x+1,y:g.player.y},g.map.rooms[0].id,fixed,['chilling']);
+    e.maxHp=e.hp=1e6;e.baseDamage=1;g.enemies=[e];
+  }
+  for(const g of [r1,r2]){
+    const e=makeEnemy(g,'normal',{x:g.player.x+1,y:g.player.y},g.map.rooms[0].id,fixed,[]);
+    e.maxHp=e.hp=1e6;e.baseDamage=20;g.enemies=[e];
+  }
+  for(let i=0;i<40;i++){tick(h1,.1,fixed);tick(h2,.1,fixed);tick(r1,.1,fixed);tick(r2,.1,fixed);}
+  assert(h1.effects.chill>0);assert(!h2.effects.chill);
+  assert(r2.enemies[0].hp<r1.enemies[0].hp);
 });
