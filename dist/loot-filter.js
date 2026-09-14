@@ -13,6 +13,7 @@ export function normalizeLootFilter(value={}) {
 }
 
 export function matchesLootFilter(item,filter) {
+  if(item.kind==='keystone')return true;
   const f=filter||normalizeLootFilter();
   if(item.rarity===3&&f.alwaysShowUnique)return true;
   return item.rarity>=f.minRarity && f.slots.includes(item.slot) && (item.itemLevel||1)>=f.minItemLevel &&

@@ -146,3 +146,5 @@ Color/position values are attached so the renderer never has to re-derive them.
 ## Endless progression and ground loot
 
 `world-ui.js` renders only one 20-stage journey page at a time. `loot-filter.js` supplies pure filter normalization/matching and is shared by the engine and renderer. `loot-filter-ui.js` edits those rules and previews matches. The engine emits `drop` for ground equipment, then `loot` or `filteredLoot` on collection; the renderer paints labels and calls the supplied pickup callback. `combat-ui.js` uses the same derived stats as combat to render attributes and comparisons.
+
+`keystones.js` defines rift modifiers, orb recipes, drop rules and the compact arena. `engine.js` owns location transitions, suspended expeditions, single-entry portals and waves. `village-ui.js` and `village.css` provide town services, keystone inspection and the paginated pouch.

@@ -1,6 +1,6 @@
 # Save format & persistence
 
-Storage: **localStorage**, key `everfrost.save.v1` (kept even at v3 so old
+Storage: **localStorage**, key `everfrost.save.v1` (kept even at v4 so old
 heroes migrate in place). Saves are origin-scoped; local and hosted URLs have
 separate saves. Clearing browser data removes progress.
 
@@ -8,7 +8,7 @@ separate saves. Clearing browser data removes progress.
 
 ```js
 {
-  version: 3,
+  version: 4,
   name: 'Wanderer',            // ≤20 chars
   level: 1, xp: 0,             // xp vs xpRequired(level)
   gold: 120, orbs: {transmute:0, augment:0, regal:0, alchemy:0, chaos:0, exalt:0, scour:0, divine:0}, // orbs only drop from kills
@@ -133,3 +133,9 @@ persistence.
 Combat attributes are derived from equipment, talents, and temporary effects, not independently persisted totals. New `lootFilter` settings default to all rarities and slots, minimum item level 1, no required affixes, and unique override on; drops that don't match the filter are always converted to gold on pickup. `groundLoot` stores `{ id, item, x, y, age }` for each pending drop. Load validation discards malformed or duplicate pending records and preserves valid items; map changes and offline collection settle pending rewards once. Saves lacking these fields receive their defaults without resetting the character or map.
 
 Version 3 migrates old weapon/armor/charm items into hand/chest/neck gear, preserving IDs, item levels, upgrades, and explicit modifiers. Legacy base stats receive deterministic middle rolls at their existing item level; saved v3 rolls survive reloads unchanged. Ground drops migrate too. Old filter categories expand to the corresponding new slots.
+
+## Village and rift state (version 4)
+
+Existing v1–v3 saves migrate to location expedition with an empty keystone pouch. Fields: location, returnPortal (ordinary expedition availability), keystones, riftPortal (committed keystone or null), rift ({keystone, wave, status}), expedition (suspended normal world while inside a rift), lastRift. Keystone shape: {id, kind:'keystone', name, rarity, itemLevel, modifiers:[{id,roll}]}. Rolls are 0–1 and modifier families cannot repeat.
+
+The suspended world includes stage, map, monsters, position, health, cooldowns, combat timers, hazards, ground drops, and auto setting, but does not roll back gold, experience, equipment, or other permanent rewards. Arena validation checks the fixed collision map, wave bounds and boss state. Corrupt rifts close with no renewed entry while restoring the normal expedition when valid. Pouch, portal and ground-drop IDs are deduplicated during load.

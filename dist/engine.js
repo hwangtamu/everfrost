@@ -1,3 +1,4 @@
+import {makeKeystone,validKeystone,rollKeystone,riftBonuses,rewardQuantity,makeRiftMap,RIFT_WAVES,KEYSTONE_RECIPES} from './keystones.js';
 import {GEAR,GEAR_SLOTS,LEGACY_SLOTS,canonicalSlot,rollImplicits,implicitStats,migrateGear} from './gear.js';
 import {generateMap, seededRandom, distance, walkable, findPath, moveAlong, reveal, hasLineOfSight} from './world.js';
 import {AFFIXES, UNIQUE_EFFECTS, rollAffixes, affixBonuses, lootRarity} from './loot.js';
@@ -56,15 +57,16 @@ export function combatStats(s) {
 }
 
 export function enemyStats(s,e) {
+  const zone=s.location==='rift'?riftBonuses(s.rift.keystone):{speed:0,critical:0};
   const frenzy = activeAuras(s,e).some(a=>a.modifier==='hasteAura');
   const hasted = e.modifiers.includes('hasted'), deadly = e.modifiers.includes('deadly');
   const chilled = e.chilled>0 ? .8 : 1;
-  const attackSpeed = (1/2.3)*(hasted?1.3:1)*(frenzy?1.25:1)*chilled;
+  const attackSpeed = (1/2.3)*(hasted?1.3:1)*(frenzy?1.25:1)*chilled*(1+zone.speed/100);
   return {
     attack:e.baseDamage*(e.modifiers.includes('empowered')?1.4:1)*(frenzy?1.25:1),
-    movementSpeed:2.1*(hasted?1.25:1)*chilled,
+    movementSpeed:2.1*(hasted?1.25:1)*chilled*(1+zone.speed/100),
     attackSpeed,attackInterval:1/attackSpeed,attackRange:e.kind==='sprite'?3.5:1.5,
-    crit:({normal:.03,magic:.05,rare:.08,unique:.10}[e.tier]||0)+(deadly?.2:0),
+    crit:({normal:.03,magic:.05,rare:.08,unique:.10}[e.tier]||0)+(deadly?.2:0)+zone.critical/100,
     critMultiplier:1.5+(deadly?.5:0)
   };
 }
@@ -87,14 +89,14 @@ export function makeItem(slot, rarity = 0, stage = 1, rng = Math.random) {
 
 export function createGame(now = Date.now(), seed = Math.floor(Math.random() * 4294967296)) {
   const s = {
-    version:3, name:'Wanderer', level:1, xp:0, gold:120, stage:1, maxStage:1,
+    version:4, name:'Wanderer', level:1, xp:0, gold:120, stage:1, maxStage:1,
     killsInStage:0, kills:0, bosses:0, crafted:0, hp:105, auto:true, advance:true, speed:1,
     inventory:[], orbs:zeroOrbs(), equipment:{...Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null])),hand:makeItem('hand'),chest:makeItem('chest')},
     talents:{might:0,guard:0,vigor:0,fortune:0}, points:0, cooldowns:{cleave:0,mend:0,storm:0},
     enemy:null, enemies:[], attackTimer:0, attackCount:0, respawn:0, log:[], claimed:[],
     lastSave:now, playTime:0, runNumber:0, tierKills:{normal:0,magic:0,rare:0,unique:0},
     settings:{sound:false,motion:true}, hazards:[], effects:{chill:0}, died:false,
-    groundLoot:[],lootFilter:normalizeLootFilter()
+    groundLoot:[],lootFilter:normalizeLootFilter(),location:'expedition',returnPortal:false,expedition:null,keystones:[],riftPortal:null,rift:null,lastRift:null
   };
   s.inventory = [makeItem('hand',1), makeItem('neck'), makeItem('chest',1)];
   startExpedition(s, seed);
@@ -120,6 +122,7 @@ export function makeEnemy(s, tier, position, roomId, rng = Math.random, forcedMo
 }
 
 export function startExpedition(s, seed = (Math.floor(Math.random()*4294967296) ^ (s.runNumber + 1) * 2654435761) >>> 0) {
+  if(s.location==='rift')return false;
   // Leaving a map never loses earned drops, even when battle is paused.
   for(const drop of [...(s.groundLoot||[])])collectLoot(s,drop.id);
   s.groundLoot=[];
@@ -170,6 +173,7 @@ function selectTarget(s) {
 }
 
 export function movePlayer(s, x, y, targetId = null) {
+  if(s.location==='village')return false;
   if (!Number.isFinite(x) || !Number.isFinite(y) || !walkable(s.map,x,y) || s.map.completed) return false;
   const target = targetId && livingEnemies(s).find(e => e.id === targetId);
   if (targetId && !target) return false;
@@ -199,10 +203,11 @@ export function effectiveDamage(s, enemy, physical, elemental = 0) {
   const armor = enemy.modifiers.includes('armored') ? .7 : 1;
   const resist = enemy.modifiers.includes('resistant') ? .55 : 1;
   const guarded = activeAuras(s,enemy).some(a => a.modifier === 'guardAura') ? .75 : 1;
-  return Math.max(1, Math.round((physical * armor + elemental * resist) * guarded));
+  return Math.max(1, Math.round((physical * armor + elemental * resist) * guarded * (s.location==='rift'?1-riftBonuses(s.rift.keystone).reduction/100:1)));
 }
 
 function giveItem(s,item,events) {
+  if(item.kind==='keystone'){if(!s.keystones.some(k=>k.id===item.id)){s.keystones.unshift(item);events.push({type:'keystone',item});addLog(s,`${item.name} added to your keystone pouch.`,'loot');}return;}
   if(s.lootFilter&&!matchesLootFilter(item,s.lootFilter)){
     const gold=salvageGold(item);s.gold+=gold;
     addLog(s,`Filter salvaged ${item.name} · +${gold} gold.`,'salvage');
@@ -279,10 +284,20 @@ export function defeatEnemy(s,enemy,events = [],rng = Math.random) {
   events.push({type:'kill',gold,xp,boss:enemy.boss,tier:enemy.tier,x:enemy.x,y:enemy.y});
   addLog(s,`${ENEMY_TIERS[enemy.tier].label} ${enemy.name} defeated · +${gold} gold · +${xp} XP`);
   const dropChance = {normal:.30,magic:.70,rare:1,unique:1}[enemy.tier];
-  const quantity = enemy.tier === 'unique' ? 2 : 1;
+  const bonus=s.location==='rift'?riftBonuses(s.rift.keystone):{quantity:0,rarity:0,itemLevel:0};
+  const quantity = rewardQuantity(enemy.tier === 'unique' ? 2 : 1,bonus.quantity,rng);
   if (rng() < dropChance) for (let i = 0; i < quantity; i++) {
-    const rarity = lootRarity(enemy.tier,rng);
-    dropItem(s,makeItem(GEAR_SLOTS[Math.floor(rng()*GEAR_SLOTS.length)],rarity,s.stage,rng),enemy,events);
+    const rarity = lootRarity(enemy.tier,()=>rng()/(1+bonus.rarity/100));
+    dropItem(s,makeItem(GEAR_SLOTS[Math.floor(rng()*GEAR_SLOTS.length)],rarity,s.stage+bonus.itemLevel,rng),enemy,events);
+  }
+  const keystone=rollKeystone(enemy.tier,s.stage,rng);
+  if(keystone)dropItem(s,keystone,enemy,events);
+  if(s.location==='rift'){
+    if(enemy.boss){
+      s.rift.status='cleared';s.map.completed=true;s.hazards=[];s.rift.clearedAt=Date.now();
+      events.push({type:'riftComplete'});addLog(s,'Rift conquered. Collect your spoils and return to the Village.','system');
+    }else if(s.enemies.every(e=>e.hp<=0))spawnRiftWave(s,s.rift.wave+1,events,rng);
+    return;
   }
   if (!enemy.boss) {
     s.map.progress = Math.min(s.map.goal,s.map.progress+enemy.points);
@@ -322,6 +337,7 @@ export function hurtHero(s,amount,element = 'physical',events = [],critical = fa
 }
 
 function advanceStep(s,dt,events,rng) {
+  if(s.location==='village')return;
   s.playTime += dt;
   for (const skill of SKILLS) s.cooldowns[skill.id] = Math.max(0,s.cooldowns[skill.id]-dt);
   s.effects.chill = Math.max(0,s.effects.chill-dt);
@@ -329,6 +345,7 @@ function advanceStep(s,dt,events,rng) {
   advanceLoot(s,dt,events);
   s.died = false;
   if (s.map.completed) {
+    if(s.location==='rift')return;
     s.respawn = Math.max(0,s.respawn-dt);
     if (s.respawn <= 0) {
       if (s.advance) { s.stage++; events.push({type:'stage',value:s.stage}); }
@@ -390,6 +407,7 @@ function advanceStep(s,dt,events,rng) {
   }
   for(const hazard of s.hazards){hazard.remaining-=dt;if(hazard.remaining<=0){if(distance(player,hazard)<=hazard.radius)hurtHero(s,hazard.damage,hazard.element,events);events.push({type:'explosion',x:hazard.x,y:hazard.y});}}
   s.hazards=s.hazards.filter(h=>h.remaining>0);
+  if(s.hp<=0&&s.location==='rift'){leaveRift(s,'failed');events.push({type:'riftFailed'});return;}
   if(s.hp<=0){s.hp=p.maxHp;s.auto=false;s.died=true;s.hazards=[];s.player={...s.map.entrance,path:[],pathTimer:0,manual:false,targetId:null};for(const e of livingEnemies(s)){e.x=e.home.x;e.y=e.home.y;e.hp=e.maxHp;e.path=[];e.awakened=false;e.attackTimer=0;}selectTarget(s);events.push({type:'death'});addLog(s,'Returned to camp. Your map progress is preserved; surviving enemies recovered.','system');}
   if(s.enemy?.hp<=0&&!s.map.completed)selectTarget(s);
 }
@@ -403,7 +421,7 @@ export function tick(s,dt,rng=Math.random){
 
 export function useSkill(s,id,rng=Math.random){
   const def=SKILLS.find(x=>x.id===id);
-  if(!def||s.level<def.level||s.cooldowns[id]>0||s.map.completed)return [];
+  if(s.location==='village'||!def||s.level<def.level||s.cooldowns[id]>0||s.map.completed)return [];
   const p=stats(s),targets=skillTargets(s,id);
   if(id!=='mend'&&!targets.length)return [];
   s.cooldowns[id]=def.cooldown;
@@ -421,7 +439,7 @@ export function upgradeCost(item){return {gold:40*(item.upgrade+1)};}
 export function upgrade(s,slot){const item=s.equipment[slot];if(!item)return false;const cost=upgradeCost(item);if(s.gold<cost.gold)return false;s.gold-=cost.gold;item.upgrade++;s.crafted++;return true;}
 export function merge(s,slot,rarity){if(!GEAR_SLOTS.includes(slot)||!Number.isInteger(rarity)||rarity<0||rarity>2)return false;const items=s.inventory.filter(x=>x.slot===slot&&x.rarity===rarity).slice(0,3);if(items.length<3||s.gold<75)return false;const ids=new Set(items.map(x=>x.id));s.inventory=s.inventory.filter(x=>!ids.has(x.id));const item=makeItem(slot,rarity+1,Math.max(s.stage,...items.map(x=>x.itemLevel||1)));item.upgrade=Math.max(...items.map(x=>x.upgrade));s.inventory.unshift(item);s.gold-=75;s.crafted++;addLog(s,`Forged ${item.name} from three pieces of equipment.`,'loot');return item;}
 export function learn(s,id){if(s.points<=0||!Object.hasOwn(s.talents,id))return false;s.points--;s.talents[id]++;return true;}
-export function travel(s,stage){if(!Number.isInteger(stage)||stage<1||stage>s.maxStage)return false;s.stage=stage;startExpedition(s);return true;}
+export function travel(s,stage){if(s.location==='rift')return false;if(s.location==='village')return startVillageStage(s,stage);if(!Number.isInteger(stage)||stage<1||stage>s.maxStage)return false;s.stage=stage;startExpedition(s);return true;}
 export const QUESTS=[
   {id:'first',name:'Into the wild',description:'Defeat 10 creatures',target:10,value:s=>s.kills,gold:150},
   {id:'forge',name:'A sharper edge',description:'Upgrade or merge equipment 3 times',target:3,value:s=>s.crafted,gold:200},
@@ -432,7 +450,7 @@ export function claimQuest(s,id){const q=QUESTS.find(q=>q.id===id);if(!q||s.clai
 export function offlineRewards(s,now=Date.now()){
   const seconds=Math.min(28800,Math.max(0,(now-s.lastSave)/1000));s.lastSave=now;
   if(seconds>=60)for(const drop of [...(s.groundLoot||[])])collectLoot(s,drop.id);
-  if(seconds<60||!s.auto)return null;
+  if(seconds<60||!s.auto||s.location==='village'||s.location==='rift')return null;
   const p=combatStats({...s,effects:{chill:0}}),dps=p.dps;
   const averageHealth=(18+Math.pow(s.stage,1.18)*6)*1.7;
   const travelTime=3*BASE_COMBAT.movementSpeed/p.movementSpeed;
@@ -446,6 +464,96 @@ export function offlineRewards(s,now=Date.now()){
 
 export function saveGame(s,storage=globalThis.localStorage,now=Date.now()){
   try{s.lastSave=now;storage.setItem(SAVE_KEY,JSON.stringify(s));return true;}catch{return false;}
+}
+
+const EXPEDITION_FIELDS=['stage','map','enemies','enemy','player','hp','cooldowns','effects','hazards','attackTimer','attackCount','respawn','killsInStage','died','auto','groundLoot'];
+function captureExpedition(s){return structuredClone(Object.fromEntries(EXPEDITION_FIELDS.map(key=>[key,s[key]])));}
+
+export function teleportVillage(s){
+  if(s.location==='village')return false;
+  if(s.location==='rift'){leaveRift(s,s.map.completed?'cleared':'abandoned');return true;}
+  s.location='village';s.returnPortal=true;
+  addLog(s,'Teleported to the Village. Your expedition waits at the return portal.','system');return true;
+}
+export function resumeExpedition(s){
+  if(s.location!=='village'||!s.returnPortal)return false;
+  s.location='expedition';s.returnPortal=false;
+  addLog(s,`Returned to ${s.map.name}, exactly where you left off.`,'system');return true;
+}
+export function startVillageStage(s,stage=s.maxStage){
+  if(s.location!=='village'||!Number.isSafeInteger(stage)||stage<1||stage>s.maxStage)return false;
+  s.location='expedition';s.returnPortal=false;s.stage=stage;s.auto=true;
+  startExpedition(s);return true;
+}
+export function craftKeystone(s,rarity,rng=Math.random,itemLevel=s.maxStage){
+  if(s.location!=='village')return {ok:false,reason:'Keystones can only be crafted in the Village.'};
+  if(!Number.isSafeInteger(itemLevel)||itemLevel<1||itemLevel>s.maxStage)return {ok:false,reason:'Choose a level up to your highest unlocked stage.'};
+  const recipe=KEYSTONE_RECIPES.find(r=>r.rarity===rarity);
+  if(!recipe)return {ok:false,reason:'Choose a keystone rarity.'};
+  if(Object.entries(recipe.cost).some(([orb,n])=>(s.orbs[orb]||0)<n))return {ok:false,reason:'You need more orbs for this recipe.'};
+  const item=makeKeystone(rarity,itemLevel,rng);
+  for(const [orb,n] of Object.entries(recipe.cost))s.orbs[orb]-=n;
+  s.keystones.unshift(item);s.crafted++;
+  addLog(s,`Crafted ${item.name} at level ${item.itemLevel}.`,'loot');return {ok:true,item};
+}
+export function openRiftPortal(s,keyId){
+  if(s.location!=='village'||s.riftPortal)return false;
+  const at=s.keystones.findIndex(k=>k.id===keyId);if(at<0)return false;
+  const [key]=s.keystones.splice(at,1);s.riftPortal=key;
+  addLog(s,'A rift portal is open. One entry only; the keystone is consumed.','system');return true;
+}
+export function enterRift(s,rng=Math.random){
+  if(s.location!=='village'||!s.riftPortal)return false;
+  const key=s.riftPortal;s.riftPortal=null; // Consume the entry before any monsters spawn.
+  s.expedition=captureExpedition(s);s.location='rift';s.stage=key.itemLevel;
+  s.rift={keystone:key,wave:0,status:'active'};
+  s.map=makeRiftMap(Math.floor(rng()*4294967296),s.stage);s.enemies=[];
+  s.player={...s.map.entrance,path:[],pathTimer:0,manual:false,targetId:null};
+  s.hp=stats(s).maxHp;s.auto=true;s.killsInStage=0;s.attackTimer=0;s.respawn=0;s.died=false;
+  s.effects={chill:0};s.cooldowns={cleave:0,mend:0,storm:0};s.hazards=[];
+  // Expedition ground loot stays with its map and is restored on return.
+  s.expedition.groundLoot=s.groundLoot;s.groundLoot=[];
+  spawnRiftWave(s,1,[],rng);return true;
+}
+function spawnRiftWave(s,wave,events=[],rng=Math.random){
+  const b=riftBonuses(s.rift.keystone),boss=wave===RIFT_WAVES;
+  s.rift.wave=wave;s.map.progress=wave-1;s.map.bossUnlocked=boss;s.hazards=[];
+  const count=boss?1:Math.ceil((4+wave)*(1+b.pack/100));
+  s.enemies=Array.from({length:count},(_,i)=>{
+    const tier=boss?'unique':wave>=3&&i===0?'rare':wave>=2&&i%3===0?'magic':'normal';
+    const positions=[{x:5.5+(i%6)*2,y:4.5},{x:5.5+(i%6)*2,y:11.5},{x:4.5,y:5.5+i%8},{x:19.5,y:5.5+i%8}];
+    const e=makeEnemy(s,tier,boss?{x:12.5,y:5.5}:positions[i%4],0,rng);
+    e.maxHp=Math.round(e.maxHp*(1+b.life/100)*(boss?2.2:1));e.hp=e.maxHp;
+    e.baseDamage*= (1+b.damage/100)*(boss?1.5:1);e.awakened=true;
+    if(boss){e.name='Vharos, the Riftbound';e.modifiers=['earthshatter','empowered'];}
+    return e;
+  });
+  s.player.targetId=null;s.player.manual=false;s.player.path=[];selectTarget(s);
+  events.push({type:'riftWave',wave});addLog(s,boss?'Vharos has arrived. Defeat the rift guardian.':`Rift wave ${wave} begins.`,'system');
+}
+function leaveRift(s,status){
+  for(const d of [...s.groundLoot])collectLoot(s,d.id);
+  const key=s.rift.keystone;
+  s.lastRift={status,wave:s.rift.wave,itemLevel:key.itemLevel,rarity:key.rarity};
+  const expedition=s.expedition;
+  if(expedition)Object.assign(s,expedition);
+  s.location='village';s.expedition=null;s.rift=null;s.riftPortal=null;
+  if(!expedition){s.returnPortal=false;startExpedition(s);}
+  if(status==='failed')s.hp=stats(s).maxHp;
+  addLog(s,status==='failed'?'You fell in the rift. Its portal is gone.':status==='cleared'?'Rift conquered. Welcome back to the Village.':'You left the rift. Its single-use portal has closed.','system');
+}
+function restoreRift(s,data){
+  const m=data.map,r=s.rift;
+  if(!r||!Number.isInteger(r.wave)||r.wave<1||r.wave>RIFT_WAVES||!['active','cleared'].includes(r.status)||data.stage!==r.keystone.itemLevel)return false;
+  const expected=makeRiftMap(m?.seed,data.stage);
+  if(!m||m.topology!=='arena'||m.width!==24||m.height!==18||m.tiles?.length!==432||!m.tiles.every((t,i)=>t===expected.tiles[i])||!Array.isArray(data.enemies)||!data.enemies.length||data.enemies.length>24)return false;
+  if(!data.enemies.every(e=>e&&typeof e.id==='string'&&typeof e.name==='string'&&ENEMY_TIERS[e.tier]&&e.roomId===0&&Number.isFinite(e.hp)&&Number.isFinite(e.maxHp)&&e.maxHp>0&&e.hp>=0&&e.hp<=e.maxHp&&Number.isFinite(e.baseDamage)&&e.baseDamage>=0&&walkable(m,e.x,e.y)&&e.home&&walkable(m,e.home.x,e.home.y)&&Array.isArray(e.modifiers)&&e.modifiers.every(id=>MODIFIERS[id])))return false;
+  if(r.wave===RIFT_WAVES?(data.enemies.length!==1||!data.enemies[0].boss||data.enemies[0].tier!=='unique'):data.enemies.some(e=>e.boss||e.tier==='unique'))return false;
+  s.map={...expected,progress:r.wave-1,bossUnlocked:r.wave===RIFT_WAVES,completed:r.status==='cleared'};s.enemies=data.enemies;
+  if(s.map.completed!==!!(r.wave===RIFT_WAVES&&s.enemies[0].hp<=0)||(!s.map.completed&&s.enemies.every(e=>e.hp<=0)))return false;
+  for(const e of s.enemies){e.rewarded=e.hp<=0;e.path=[];e.pathTimer=0;e.awakened=true;e.attackTimer=0;e.slamTimer=5;e.chilled=0;}
+  s.player=data.player&&walkable(s.map,data.player.x,data.player.y)?{...data.player,path:[],pathTimer:0,manual:false}:{...s.map.entrance,path:[],pathTimer:0,manual:false};
+  s.hazards=[];s.respawn=0;selectTarget(s);return true;
 }
 
 function restoreMap(s,data){
@@ -468,12 +576,12 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
   try{
     const raw=storage.getItem(SAVE_KEY);if(!raw)return {state:createGame(now),offline:null};
     const data=JSON.parse(raw);
-    if(![1,2,3].includes(data.version)||!Number.isInteger(data.level)||data.level<1||!Number.isInteger(data.stage)||data.stage<1||!Array.isArray(data.inventory)||!data.equipment||!data.talents)throw Error('Invalid save');
+    if(![1,2,3,4].includes(data.version)||!Number.isInteger(data.level)||data.level<1||!Number.isInteger(data.stage)||data.stage<1||!Array.isArray(data.inventory)||!data.equipment||!data.talents)throw Error('Invalid save');
     const validItem=i=>i&&typeof i.id==='string'&&typeof i.name==='string'&&GEAR_SLOTS.includes(canonicalSlot(i.slot))&&Number.isInteger(i.rarity)&&i.rarity>=0&&i.rarity<=3&&Number.isInteger(i.upgrade)&&i.upgrade>=0;
     if(!data.inventory.every(validItem)||!Object.entries(data.equipment).every(([slot,item])=>GEAR_SLOTS.includes(canonicalSlot(slot))&&(item===null||(validItem(item)&&item.slot===slot))))throw Error('Invalid equipment');
     if(typeof data.name!=='string'||!data.name.trim()||!Array.isArray(data.log)||!data.log.every(x=>x&&typeof x.text==='string'&&Number.isFinite(x.time))||!Array.isArray(data.claimed))throw Error('Invalid hero');
     if(!['might','guard','vigor','fortune'].every(k=>Number.isInteger(data.talents[k])&&data.talents[k]>=0))throw Error('Invalid mastery');
-    const fresh=createGame(now),s={...fresh,...data,version:3,name:data.name.slice(0,20),settings:{sound:false,motion:true,...data.settings}};
+    const fresh=createGame(now),s={...fresh,...data,version:4,name:data.name.slice(0,20),settings:{sound:false,motion:true,...data.settings}};
     for(const key of ['gold','xp','hp','maxStage','kills','points','lastSave','bosses','crafted'])if(!Number.isFinite(s[key])||s[key]<0)throw Error('Invalid save');
     s.maxStage=Math.max(s.stage,Math.floor(s.maxStage));s.speed=s.speed===2?2:1;s.auto=!!s.auto;s.advance=!!s.advance;s.inventory=s.inventory.slice(0,48);
     s.equipment={...Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null])),...Object.fromEntries(Object.entries(s.equipment).map(([slot,item])=>[canonicalSlot(slot),item]))};
@@ -503,15 +611,41 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
     s.orbs={...zeroOrbs(),...Object.fromEntries(Object.entries(data.orbs||{}).filter(([k,v])=>CRAFT_OPERATIONS[k]&&Number.isInteger(v)&&v>=0))};
     delete s.shards;
     s.lootFilter=normalizeLootFilter(data.lootFilter);
-    const ownedIds=new Set([...s.inventory,...Object.values(s.equipment)].filter(Boolean).map(i=>i.id));
-    s.groundLoot=(Array.isArray(data.groundLoot)?data.groundLoot:[]).filter(d=>{
-      if(!d||!validItem(d.item)||d.id!==d.item.id||ownedIds.has(d.id)||!Number.isFinite(d.x)||!Number.isFinite(d.y))return false;
+    s.location=['village','rift'].includes(data.location)?data.location:'expedition';
+    s.riftPortal=validKeystone(data.riftPortal)?data.riftPortal:null;
+    s.rift=data.rift&&validKeystone(data.rift.keystone)?data.rift:null;
+    const keyIds=new Set([s.riftPortal?.id,s.rift?.keystone.id].filter(Boolean));
+    s.keystones=(Array.isArray(data.keystones)?data.keystones:[]).filter(k=>{if(!validKeystone(k)||keyIds.has(k.id))return false;keyIds.add(k.id);return true;});
+    s.returnPortal=data.returnPortal===true;
+    s.lastRift=data.lastRift&&['cleared','failed','abandoned','lost'].includes(data.lastRift.status)?data.lastRift:null;
+    const ownedIds=new Set([...s.inventory,...Object.values(s.equipment)].filter(Boolean).map(i=>i.id).concat([...keyIds]));
+    const normalizeDrops=drops=>(Array.isArray(drops)?drops:[]).filter(d=>{
+      if(!d||!(validItem(d.item)||validKeystone(d.item))||d.id!==d.item.id||ownedIds.has(d.id)||!Number.isFinite(d.x)||!Number.isFinite(d.y))return false;
       ownedIds.add(d.id);return true;
     }).slice(0,64).map(d=>({...d,age:Number.isFinite(d.age)?Math.max(0,d.age):0,item:{...d.item,affixes:(Array.isArray(d.item.affixes)?d.item.affixes:[]).filter(a=>a&&AFFIXES[a.id]&&Number.isFinite(a.value)&&a.value>=0)}}));
-    s.groundLoot.forEach(d=>migrateGear(d.item));
+    s.groundLoot=normalizeDrops(data.groundLoot);
+    s.groundLoot.forEach(d=>{if(d.item.kind!=='keystone')migrateGear(d.item);});
     const migrated=data.version===1;
-    const restored=!migrated&&restoreMap(s,data);
-    if(!restored)startExpedition(s);
+    let restored=false;
+    if(s.location==='rift'){
+      const prior={...s,...data.expedition};
+      prior.groundLoot=normalizeDrops(data.expedition?.groundLoot);
+      prior.groundLoot.forEach(d=>{if(d.item.kind!=='keystone')migrateGear(d.item);});
+      s.expedition=data.expedition&&Number.isFinite(prior.hp)&&prior.hp>=0&&Number.isSafeInteger(prior.stage)&&prior.stage>=1&&restoreMap(prior,prior)?captureExpedition(prior):null;
+      restored=!!s.expedition&&restoreRift(s,data);
+      s.riftPortal=null;
+      if(!restored){
+        for(const d of [...s.groundLoot])collectLoot(s,d.id);
+        if(s.expedition)Object.assign(s,s.expedition);
+        s.location='village';s.rift=null;s.lastRift={status:'lost',wave:0};
+        if(!s.expedition)startExpedition(s);
+        s.returnPortal=!!s.expedition;s.expedition=null;
+      }
+    }else{
+      s.rift=null;s.expedition=null;
+      restored=!migrated&&restoreMap(s,data);
+      if(!restored){startExpedition(s);s.returnPortal=false;}
+    }
     s.hp=Math.min(s.hp,stats(s).maxHp);
     return {state:s,offline:offlineRewards(s,now),migrated,mapRecovered:!migrated&&!restored};
   }catch{return {state:createGame(now),offline:null,recovered:true};}

@@ -56,7 +56,7 @@ test('v2 equipped gear, inventory, ground loot and category filters migrate once
  s.lootFilter={slots:['weapon','armor','charm']};
  const data=new Map([[SAVE_KEY,JSON.stringify(s)]]),storage={getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v)};
  const loaded=loadGame(storage,1000);assert(!loaded.recovered);const migrated=loaded.state;
- assert.equal(migrated.version,3);assert.deepEqual(Object.keys(migrated.equipment),GEAR_SLOTS);
+ assert.equal(migrated.version,4);assert.deepEqual(Object.keys(migrated.equipment),GEAR_SLOTS);
  assert.equal(migrated.equipment.hand.id,'w');assert.equal(migrated.equipment.chest.id,'a');assert.equal(migrated.equipment.neck.id,'c');
  assert.equal(migrated.equipment.hand.upgrade,3);assert.equal(migrated.equipment.hand.affixes[0].value,3);
  assert.equal(migrated.inventory[0].slot,'chest');assert.equal(migrated.groundLoot[0].item.slot,'neck');

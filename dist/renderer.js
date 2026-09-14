@@ -60,7 +60,7 @@ export class Battlefield{
   size(){const r=this.canvas.getBoundingClientRect();this.w=r.width;this.h=r.height;const dpr=Math.min(devicePixelRatio||1,2);this.canvas.width=r.width*dpr;this.canvas.height=r.height*dpr;this.ctx.setTransform(dpr,0,0,dpr,0,0);}
 
   buildTerrain(s){
-    const map=s.map,p=PALETTES[regionIndex(s)];
+    const map=s.map,p=PALETTES[s.location==='rift'?3:regionIndex(s)];
     const terrain=document.createElement('canvas');terrain.width=map.width*CELL;terrain.height=map.height*CELL;
     const c=terrain.getContext('2d');c.fillStyle=p.wall;c.fillRect(0,0,terrain.width,terrain.height);
     for(let y=0;y<map.height;y++)for(let x=0;x<map.width;x++){
@@ -91,7 +91,7 @@ export class Battlefield{
         c.restore();
       }
     }
-    this.terrain=terrain;this.terrainSeed=map.seed;
+    this.terrain=terrain;this.terrainSeed=map.seed+map.topology;
   }
 
   event(e){
@@ -107,17 +107,15 @@ export class Battlefield{
     const dt=Math.min(.05,(timestamp-(this.last||timestamp))/1000);this.last=timestamp;this.time+=dt;
     const s=this.getState(),c=this.ctx,w=this.w,h=this.h,map=s.map;
     if(w<1||h<1){this.frame=requestAnimationFrame(t=>this.draw(t));return;}
-    if(!this.terrain||this.terrainSeed!==map.seed){this.buildTerrain(s);this.camera.x=s.player.x*CELL-w/2;this.camera.y=s.player.y*CELL-h*.56;this.floats=[];}
-    const desired={x:Math.max(0,Math.min(map.width*CELL-w,s.player.x*CELL-w/2)),y:Math.max(0,Math.min(map.height*CELL-h,s.player.y*CELL-h*.58))};
+    if(!this.terrain||this.terrainSeed!==map.seed+map.topology){this.buildTerrain(s);this.camera.x=s.player.x*CELL-w/2;this.camera.y=s.player.y*CELL-h*.56;this.floats=[];}
+    const desired={x:map.width*CELL<w?(map.width*CELL-w)/2:Math.max(0,Math.min(map.width*CELL-w,s.player.x*CELL-w/2)),y:map.height*CELL<h?(map.height*CELL-h)/2:Math.max(0,Math.min(map.height*CELL-h,s.player.y*CELL-h*.58))};
     this.camera.x+=(desired.x-this.camera.x)*Math.min(1,dt*8);this.camera.y+=(desired.y-this.camera.y)*Math.min(1,dt*8);
     const motion=s.settings.motion&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
     c.clearRect(0,0,w,h);c.fillStyle='#10251d';c.fillRect(0,0,w,h);
     c.save();c.translate(-this.camera.x,-this.camera.y);c.drawImage(this.terrain,0,0);
     const reach=combatStats(s).attackRange*CELL;
     c.beginPath();c.arc(s.player.x*CELL,s.player.y*CELL,reach,0,Math.PI*2);c.strokeStyle='#f0d49732';c.lineWidth=1;c.setLineDash([3,7]);c.stroke();c.setLineDash([]);
-    this.landmark(c,map.entrance,'camp',false);
-    this.landmark(c,map.shrine,'shrine',map.shrine.used);
-    this.landmark(c,map.chest,'chest',map.chest.opened);
+    if(s.location!=='rift'){this.landmark(c,map.entrance,'camp',false);this.landmark(c,map.shrine,'shrine',map.shrine.used);this.landmark(c,map.chest,'chest',map.chest.opened);}
     const boss=s.enemies.find(e=>e.boss);this.landmark(c,boss,'portal',!map.bossUnlocked);
     if(s.player.path.length){c.strokeStyle=s.player.manual?'#f3d89199':'#cbd2a84d';c.setLineDash([3,6]);c.lineWidth=2;c.beginPath();c.moveTo(s.player.x*CELL,s.player.y*CELL);s.player.path.slice(0,20).forEach(p=>c.lineTo(p.x*CELL,p.y*CELL));c.stroke();c.setLineDash([]);}
     for(const e of s.enemies){

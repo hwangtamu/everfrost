@@ -65,3 +65,5 @@ The 45 tests in `tests/` cover 500 map seeds for connectivity and a linear route
 Reference research: [Nordicandia official site](https://www.nordicandia.com/), [official Steam listing](https://store.steampowered.com/app/1503790/Nordicandia/), and Path of Exile's official [Monster Mods FAQ](https://www.pathofexile.com/forum/view-thread/3322408/filter-account-type/staff) and [Item Changes](https://www.pathofexile.com/forum/view-thread/3774647). Mechanics, numbers, setting, and assets here are original implementations.
 
 Gear uses nine equipment slots with level-scaled implicit damage, armor, and life (±5% variance), separate from explicit affixes. Old gear saves migrate automatically.
+
+Visit the Village to resume a saved expedition, begin a fresh unlocked stage, or craft keystones using orbs. A keystone opens a single-entry rift: four monster waves followed by Vharos. Death or leaving closes the run. Rift modifiers increase difficulty and equipment item level, quantity, and rarity.

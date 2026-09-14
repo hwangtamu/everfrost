@@ -203,3 +203,14 @@ UI control).
 ## Nine-slot gear and implicit stats
 
 Equipment slots: head, neck, shoulder, chest, wrist, hand, belt, leg, foot. `gear.js` defines each slot's damage, armor, and life rates. Each implicit rolls `rate × itemLevel × uniform(0.95, 1.05)`, rounded to one decimal. Rarity does not multiply base stats. All equipped implicits contribute to combat along with explicit modifiers. Each forge rank adds 10% of the original base values; orb/bench crafting changes only explicits. Merging preserves the highest contributor item level (or current stage) and upgrade rank, with a fresh implicit roll. Unique powers work in any applicable slot and do not stack duplicate powers.
+
+## Village and keystone rifts
+
+- Location is expedition, village, or rift. Teleport to the Village at any time. Normal maps retain the hero position, enemy health, progress, timers, and ground loot. Returning resumes that map; the entrance starts a new map of an unlocked stage and replaces the return point.
+- Craft keystones only in town, choosing any level up to maxStage. Recipes consume orbs atomically: normal 3 Transmutation; magic 3 Transmutation + 2 Augmentation; rare 2 Alchemy + 1 Regal; unique 2 Exalted + 2 Divine.
+- Keystone drop chances by enemy tier: normal 0.3%, magic 1%, rare 4%, unique 12%. Conditional keystone rarity weights: normal 45%, magic 37%, rare 15.5%, unique 2.5%. They use a separate, paginated pouch and bypass equipment filters.
+- Keystone mod counts: normal 0, magic 1–2, rare 3–4, unique 6 distinct mods. Brutal adds monster damage, Stalwart life, Quickened speed, Crowded pack size, Warded damage reduction, and Ruinous critical chance. Every mod also increases reward item level, quantity, and rarity. Values are shown before portal opening.
+- Opening consumes the keystone and creates one pending portal; entering consumes that portal. The ordinary expedition is suspended separately. Teleporting out or dying ends a rift permanently. The normal return point survives.
+- The 24×18 arena spawns four packs, then Vharos. The next wave is immediate after the last kill. Base monster life/damage are +20%/+10%; the boss additionally has 2.2× life and 1.5× damage. Rifts never advance maxStage or normal guardian achievements. The winner stays in the cleared arena to collect and return.
+- Quantity multiplies equipment roll count, with a probabilistic extra roll for the fractional part. Rarity divides the rarity roll by 1 + bonus/100. Item level is keystone level + modifier bonuses. These bonuses do not alter already rolled items.
+- Village and rifts grant no offline farming. An unfinished rift resumes after reload without another portal entry; death, entry, opening, and wave transitions persist immediately in the UI.

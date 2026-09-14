@@ -1,3 +1,4 @@
+import {riftBonuses} from './keystones.js';
 import {icon} from './icons.js';
 import {stats,enemyStats,skillTargets,withinReach} from './engine.js';
 import {updateCombatPanel,equipmentChanges,number} from './combat-ui.js';
@@ -18,6 +19,7 @@ export function mountExpedition(){
   $('enemy-card').insertAdjacentHTML('beforeend',`<div id="enemy-mods" class="enemy-mods"></div>`);
   $('battlefield').insertAdjacentHTML('beforeend',`<button class="minimap-control" data-action="expedition-map" aria-label="Open expedition map"><canvas id="minimap" width="184" height="136" aria-hidden="true"></canvas><span>${icon('map')} Expedition map</span></button><div id="combat-statuses" class="combat-statuses"></div>`);
   $('battlefield').insertAdjacentHTML('afterend',`<div class="expedition-meta"><div><strong id="expedition-name"></strong><span id="map-seed"></span></div><button class="text-button" data-action="reroll-map">${icon('compass')} New map</button></div><div class="threat-legend">${Object.entries(ENEMY_TIERS).map(([id,t])=>`<button data-action="threat-guide" class="threat-key" style="--tier-color:${t.color}"><i></i>${t.label}<small>${id==='unique'?'BOSS':'+'+t.points}</small></button>`).join('')}</div>`);
+  $('battlefield').insertAdjacentHTML('beforebegin','<button id="rift-info" class="button rift-info-button" data-action="rift-info" hidden>Rift modifiers & rewards · one entry only</button>');
   $('battle-canvas').setAttribute('aria-label','Procedural expedition map. Click the ground to follow a walkable path, or click an enemy to target it. Use arrow keys while the map is focused.');
   $('battlefield').insertAdjacentHTML('afterend',`<div class="ground-loot-toolbar"><button class="button" data-action="loot-filter">${icon('bag')} Loot filter</button><div><span id="loot-filter-summary">All rarities</span><small id="ground-loot-count">Drops collect automatically</small></div><button class="text-button" id="collect-ground" data-action="collect-ground" hidden>Collect now</button></div>`);
 }
@@ -62,10 +64,25 @@ export function updateExpedition(s){
   if(!s.auto&&s.died){
     if($('battle-overlay').querySelector('h3')?.textContent!=='Back at camp.')$('battle-overlay').innerHTML=`<div>${icon('shield')}<h3>Back at camp.</h3><p>Your map progress is safe.<br>Improve your gear or return to an earlier stage.</p><button class="button gold-button" data-action="auto">${icon('play')} Return to the hunt</button></div>`;
   }
-  if(m.completed){
+  if(m.completed&&s.location!=='rift'){
     $('battle-overlay').hidden=false;
     if($('battle-overlay').querySelector('h3')?.textContent!=='Guardian defeated.')$('battle-overlay').innerHTML=`<div>${icon('trophy')}<h3>Guardian defeated.</h3><p>Stage ${s.stage} cleared.<br>${s.advance?'The next expedition awaits.':'Preparing a fresh map of this stage.'}</p></div>`;
   }
+  if(s.location==='rift'){
+    const bonus=riftBonuses(s.rift.keystone),wave=s.rift.wave;
+    $('objective-title').textContent=m.completed?'Rift conquered':wave===5?'Defeat Vharos, the Riftbound':'Clear rift wave '+wave+' of 4';
+    $('objective-description').textContent=m.completed?'Collect your spoils and return to the Village.':wave===5?'Final boss · death ends the run':remaining+' enemies remain · the next wave starts immediately';
+    $('objective-counter').textContent=wave===5?'FINAL BOSS':'WAVE '+wave+' / 5';
+    $('region-name').textContent='The Shattered Glade';$('stage-label').textContent='Rift level '+s.stage;
+    $('map-seed').textContent='RIFT ARENA · ONE ENTRY · NO RE-ENTRY';
+    $('field-location').textContent='RIFT · WAVE '+wave+' / 5';$('enemy-tier').textContent=e.boss?'UNIQUE · RIFT GUARDIAN':t.label.toUpperCase();
+    $('wave-count').textContent='WAVE '+wave+' / 5';
+    html('wave-track',Array.from({length:5},(_,i)=>'<i class="'+(i<wave-1||m.completed?'complete':'')+'">'+(i===4?icon('trophy'):'')+'</i>').join(''));
+    $('battle-status').textContent=m.completed?'Rift conquered':!s.auto?'Rift paused':'Wave '+wave+' · '+s.enemies.filter(e=>e.hp>0).length+' enemies remain';
+    $('field-hint').textContent='Reward level '+(s.stage+bonus.itemLevel)+' · +'+bonus.quantity+'% quantity · +'+bonus.rarity+'% rarity';
+    if(m.completed){$('battle-overlay').hidden=false;if($('battle-overlay').querySelector('h3')?.textContent!=='Rift conquered.')$('battle-overlay').innerHTML='<div>'+icon('trophy')+'<h3>Rift conquered.</h3><p>Collect your spoils, then return to the Village.</p><button class="button gold-button" data-view="village">Return to Village</button></div>';}
+  }
+  $('rift-info').hidden=s.location!=='rift';
   drawMinimap($('minimap'),s);
   drawMinimap($('expedition-overview'),s,true);
   updateCombatPanel(s);
@@ -88,7 +105,7 @@ export function threatGuide(){
 }
 
 export function expeditionOverview(s){
-  return `<div class="overview-caption"><span>${esc(s.map.name)}</span><span>Stage ${s.stage} · ${s.map.progress} / ${s.map.goal}</span></div><canvas id="expedition-overview" width="690" height="510" aria-label="Current map layout, discovered terrain, hero position, monsters, shrine and chest"></canvas><div class="overview-legend"><span class="legend-hero">● Hero</span><span class="legend-boss">● Guardian</span><span class="legend-shrine">● Healing shrine</span><span class="legend-cache">● Chest</span></div><p class="dialog-description">Follow one winding trail from camp to the final sanctum. Clearings and enemy packs change with every map. Tap the battlefield to move or focus an aura bearer.</p><button class="button" data-action="threat-guide">${icon('book')} Enemy tiers & modifiers</button>`;
+  return `<div class="overview-caption"><span>${esc(s.map.name)}</span><span>Stage ${s.stage} · ${s.map.progress} / ${s.map.goal}</span></div><canvas id="expedition-overview" width="690" height="510" aria-label="Current map layout, discovered terrain, hero position, monsters, shrine and chest"></canvas><div class="overview-legend"><span class="legend-hero">● Hero</span><span class="legend-boss">● Guardian</span><span class="legend-shrine">● Healing shrine</span><span class="legend-cache">● Chest</span></div><p class="dialog-description">${s.location==='rift'?'A compact arena. Four waves lead to the final boss; leaving ends the run.':'Follow one winding trail from camp to the final sanctum. Clearings and enemy packs change with every map.'} Tap the battlefield to move or focus an aura bearer.</p><button class="button" data-action="threat-guide">${icon('book')} Enemy tiers & modifiers</button>`;
 }
 
 export function itemAffixSummary(item){
