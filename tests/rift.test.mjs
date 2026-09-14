@@ -38,13 +38,20 @@ test('all keystone rarities roll the correct distinct modifiers with tangible re
  assert(counts.normal>0&&counts.normal<30);assert(counts.unique>counts.rare&&counts.rare>counts.magic&&counts.magic>counts.normal);
 });
 
-test('town crafting charges exact orbs, validates level, and rejects unaffordable recipes atomically',()=>{
- const s=createGame();s.maxStage=20;s.orbs={...s.orbs,transmute:3,augment:2};
- assert(!craftKeystone(s,1,fixed,5).ok);teleportVillage(s);
- const before=JSON.stringify(s);assert(!craftKeystone(s,2,fixed,5).ok);assert(!craftKeystone(s,1,fixed,21).ok);assert.equal(JSON.stringify(s),before);
- const result=craftKeystone(s,1,fixed,5);assert(result.ok);assert.equal(result.item.itemLevel,5);
- assert.equal(s.orbs.transmute,0);assert.equal(s.orbs.augment,0);assert.equal(s.keystones.length,1);
- assert(!craftKeystone(s,1,fixed,5).ok);
+test('the altar modifies found keystones with one orb and never creates keystones from currency',()=>{
+ const s=createGame(),low=()=>.1;s.orbs=Object.fromEntries(Object.keys(s.orbs).map(id=>[id,2]));
+ assert(!craftKeystone(s,'missing','transmute',low).ok);teleportVillage(s);
+ const before=JSON.stringify(s.orbs);assert(!craftKeystone(s,'missing','alchemy',low).ok);assert.equal(JSON.stringify(s.orbs),before);assert.equal(s.keystones.length,0);
+ const key=makeKeystone(0,12,low);s.keystones.push(key);const id=key.id;
+ assert(craftKeystone(s,id,'transmute',low).ok);assert.equal(key.rarity,1);assert.equal(key.modifiers.length,1);assert.equal(s.orbs.transmute,1);
+ assert(craftKeystone(s,id,'augment',low).ok);assert.equal(key.modifiers.length,2);assert.equal(s.orbs.augment,1);
+ assert(craftKeystone(s,id,'regal',low).ok);assert.equal(key.rarity,2);assert.equal(key.modifiers.length,3);assert.equal(s.orbs.regal,1);
+ assert(craftKeystone(s,id,'exalt',low).ok);assert.equal(key.modifiers.length,4);assert.equal(s.orbs.exalt,1);
+ const types=key.modifiers.map(m=>m.id);assert(craftKeystone(s,id,'divine',fixed).ok);assert.deepEqual(key.modifiers.map(m=>m.id),types);assert(key.modifiers.every(m=>m.roll===.6));
+ assert(craftKeystone(s,id,'chaos',low).ok);assert.equal(key.rarity,2);assert([3,4].includes(key.modifiers.length));
+ assert(craftKeystone(s,id,'scour',low).ok);assert.equal(key.rarity,0);assert.equal(key.modifiers.length,0);assert.equal(key.id,id);assert.equal(key.itemLevel,12);assert.equal(s.keystones.length,1);
+ assert(craftKeystone(s,id,'alchemy',low).ok);assert.equal(key.rarity,2);assert.equal(key.modifiers.length,3);
+ const unique=makeKeystone(3,12,low);s.keystones.push(unique);assert(!craftKeystone(s,unique.id,'scour',low).ok);assert.equal(unique.rarity,3);
 });
 
 test('portal consumes one keystone on opening and one entry on use, while preserving the expedition',()=>{
@@ -129,8 +136,9 @@ test('automatic arena combat can finish all waves without teleport or terrain es
  assert.equal(s.location,'rift');assert(s.map.completed);assert.equal(s.rift.wave,5);
 });
 
-test('Village renders the entrance, return portal, keystone recipes and one-use rules',()=>{
+test('Village renders loot-only keystone selection, orb crafting, and one-use rules',()=>{
  const s=rift(0);teleportVillage(s);const key=makeKeystone(3);s.keystones.push(key);
  const html=villagePanel(s);assert.match(html,/Expedition entrance/);assert.match(html,/Continue expedition/);assert.match(html,/keystone altar/);assert.match(html,/Orb of Transmutation/);
+ assert.match(html,/Only monsters drop keystones/);assert.match(html,/No orb can create a keystone/);assert.doesNotMatch(html,/Craft normal keystone|keystone-level/);
  assert.match(keystoneDetails(key),/One entry/);assert.match(keystoneDetails(key),/Item quantity/);assert.match(keystoneDetails(key),/Item rarity/);
 });

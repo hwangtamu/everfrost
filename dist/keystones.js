@@ -9,17 +9,16 @@ export const RIFT_MODIFIERS={
   warded:{name:'Warded',label:'monster damage reduction',min:12,max:25,stat:'reduction',quantity:20,rarity:20},
   ruinous:{name:'Ruinous',label:'monster critical chance (percentage points)',min:5,max:12,stat:'critical',quantity:15,rarity:30}
 };
-export const KEYSTONE_RECIPES=[
-  {rarity:0,cost:{transmute:3},label:'Normal'},
-  {rarity:1,cost:{transmute:3,augment:2},label:'Magic'},
-  {rarity:2,cost:{alchemy:2,regal:1},label:'Rare'},
-  {rarity:3,cost:{exalt:2,divine:2},label:'Unique'}
-];
+export const KEYSTONE_CRAFT_OPERATIONS=['transmute','augment','regal','alchemy','chaos','exalt','scour','divine'];
 export const modifierValue=mod=>Math.round(RIFT_MODIFIERS[mod.id].min+(RIFT_MODIFIERS[mod.id].max-RIFT_MODIFIERS[mod.id].min)*mod.roll);
+const rollKeystoneModifiers=(count,rng=Math.random,existing=[])=>{
+  const used=new Set(existing.map(m=>m.id)),pool=Object.keys(RIFT_MODIFIERS).filter(id=>!used.has(id)),modifiers=[];
+  for(let i=0;i<count&&pool.length;i++)modifiers.push({id:pool.splice(Math.floor(rng()*pool.length),1)[0],roll:Math.round(rng()*100)/100});
+  return modifiers;
+};
 export function makeKeystone(rarity=0,itemLevel=1,rng=Math.random){
   const count=rarity===0?0:rarity===1?1+Math.floor(rng()*2):rarity===2?3+Math.floor(rng()*2):6;
-  const pool=Object.keys(RIFT_MODIFIERS),modifiers=[];
-  for(let i=0;i<count;i++)modifiers.push({id:pool.splice(Math.floor(rng()*pool.length),1)[0],roll:Math.round(rng()*100)/100});
+  const modifiers=rollKeystoneModifiers(count,rng);
   return {id:globalThis.crypto.randomUUID(),kind:'keystone',name:`${KEYSTONE_RARITIES[rarity]} Rift Keystone`,rarity,itemLevel:Math.max(1,Math.floor(itemLevel)),modifiers};
 }
 export function validKeystone(k){
@@ -35,6 +34,33 @@ export function rollKeystone(tier,itemLevel,rng=Math.random){
   if(rng()>={normal:.003,magic:.01,rare:.04,unique:.12}[tier])return null;
   const roll=rng(),rarity=roll<.025?3:roll<.18?2:roll<.55?1:0;
   return makeKeystone(rarity,itemLevel,rng);
+}
+export function keystoneCraftEligibility(opId,key){
+  if(!validKeystone(key)||!KEYSTONE_CRAFT_OPERATIONS.includes(opId))return 'Choose a dropped keystone and an orb.';
+  const count=key.modifiers.length;
+  if(opId==='transmute'&&key.rarity!==0)return 'Orb of Transmutation requires a normal keystone.';
+  if(opId==='augment'&&(key.rarity!==1||count>=2))return 'Orb of Augmentation requires a magic keystone with one modifier.';
+  if(opId==='regal'&&(key.rarity!==1||count!==2))return 'Regal Orb requires a magic keystone with two modifiers.';
+  if(opId==='alchemy'&&key.rarity!==0)return 'Orb of Alchemy requires a normal keystone.';
+  if(opId==='chaos'&&key.rarity!==2)return 'Chaos Orb requires a rare keystone.';
+  if(opId==='exalt'&&(key.rarity!==2||count>=4))return 'Exalted Orb requires a rare keystone with an open modifier.';
+  if(opId==='scour'&&![1,2].includes(key.rarity))return key.rarity===3?'Unique keystones cannot be scoured.':'There are no modifiers to remove.';
+  if(opId==='divine'&&!count)return 'Divine Orb requires a keystone with modifiers.';
+  return '';
+}
+export function applyKeystoneOrb(key,opId,rng=Math.random){
+  const reason=keystoneCraftEligibility(opId,key);if(reason)return {ok:false,reason};
+  const next=structuredClone(key);
+  if(opId==='transmute'){next.rarity=1;next.modifiers=rollKeystoneModifiers(1+Math.floor(rng()*2),rng);}
+  if(opId==='augment')next.modifiers.push(...rollKeystoneModifiers(1,rng,next.modifiers));
+  if(opId==='regal'){next.rarity=2;next.modifiers.push(...rollKeystoneModifiers(1,rng,next.modifiers));}
+  if(opId==='alchemy'){next.rarity=2;next.modifiers=rollKeystoneModifiers(3+Math.floor(rng()*2),rng);}
+  if(opId==='chaos')next.modifiers=rollKeystoneModifiers(3+Math.floor(rng()*2),rng);
+  if(opId==='exalt')next.modifiers.push(...rollKeystoneModifiers(1,rng,next.modifiers));
+  if(opId==='scour'){next.rarity=0;next.modifiers=[];}
+  if(opId==='divine')next.modifiers=next.modifiers.map(m=>({...m,roll:Math.round(rng()*100)/100}));
+  next.name=`${KEYSTONE_RARITIES[next.rarity]} Rift Keystone`;
+  return validKeystone(next)?{ok:true,item:next,opId}:{ok:false,reason:'The keystone could not hold that modifier arrangement.'};
 }
 export function rewardQuantity(base,bonus,rng=Math.random){const amount=base*(1+bonus/100);return Math.floor(amount)+(rng()<amount%1?1:0);}
 

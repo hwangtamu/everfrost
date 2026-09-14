@@ -1,6 +1,6 @@
 import {recoverEssences,normalizeEssences} from './essences.js';
 import {BOSSES,bossIdentity,castBossSkill,hazardHits,finishBossHazard} from './bosses.js';
-import {makeKeystone,validKeystone,rollKeystone,riftBonuses,rewardQuantity,makeRiftMap,RIFT_WAVES,KEYSTONE_RECIPES} from './keystones.js';
+import {validKeystone,rollKeystone,riftBonuses,rewardQuantity,makeRiftMap,RIFT_WAVES,keystoneCraftEligibility,applyKeystoneOrb} from './keystones.js';
 import {GEAR,GEAR_SLOTS,RING_SLOTS,WEAPON_TYPES,WEAPON_TYPE_IDS,LEGACY_SLOTS,canonicalSlot,rollImplicits,implicitStats,migrateGear,gearName,weaponType} from './gear.js';
 import {HERO_CLASSES,HERO_CLASS_IDS,SKILLS,skillsFor,skillById,heroClass} from './classes.js';
 import {generateMap, seededRandom, distance, walkable, findPath, moveAlong, reveal, hasLineOfSight} from './world.js';
@@ -524,16 +524,16 @@ export function startVillageStage(s,stage=s.maxStage){
   s.location='expedition';s.returnPortal=false;s.stage=stage;s.auto=true;
   startExpedition(s);return true;
 }
-export function craftKeystone(s,rarity,rng=Math.random,itemLevel=s.maxStage){
-  if(s.location!=='village')return {ok:false,reason:'Keystones can only be crafted in the Village.'};
-  if(!Number.isSafeInteger(itemLevel)||itemLevel<1||itemLevel>s.maxStage)return {ok:false,reason:'Choose a level up to your highest unlocked stage.'};
-  const recipe=KEYSTONE_RECIPES.find(r=>r.rarity===rarity);
-  if(!recipe)return {ok:false,reason:'Choose a keystone rarity.'};
-  if(Object.entries(recipe.cost).some(([orb,n])=>(s.orbs[orb]||0)<n))return {ok:false,reason:'You need more orbs for this recipe.'};
-  const item=makeKeystone(rarity,itemLevel,rng);
-  for(const [orb,n] of Object.entries(recipe.cost))s.orbs[orb]-=n;
-  s.keystones.unshift(item);s.crafted++;
-  addLog(s,`Crafted ${item.name} at level ${item.itemLevel}.`,'loot');return {ok:true,item};
+export function craftKeystone(s,keyId,opId,rng=Math.random){
+  if(s.location!=='village')return {ok:false,reason:'Use the keystone altar in the Village.'};
+  const item=s.keystones.find(k=>k.id===keyId);
+  if(!item)return {ok:false,reason:'Choose a keystone from your pouch.'};
+  const reason=keystoneCraftEligibility(opId,item);if(reason)return {ok:false,reason};
+  const operation=CRAFT_OPERATIONS[opId];
+  if(!operation||!(s.orbs?.[opId]>0))return {ok:false,reason:`No ${operation?.name||'matching orb'} available.`};
+  const result=applyKeystoneOrb(item,opId,rng);if(!result.ok)return result;
+  Object.assign(item,result.item);s.orbs[opId]--;s.crafted++;
+  addLog(s,`${operation.name} shaped ${item.name}.`,'loot');return {ok:true,item,opId,operation:operation.name};
 }
 export function openRiftPortal(s,keyId){
   if(s.location!=='village'||s.riftPortal)return false;

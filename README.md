@@ -87,7 +87,7 @@ Reference research: [Nordicandia official site](https://www.nordicandia.com/), [
 
 Gear uses eleven equipment slots (including two rings) with level-scaled implicit damage, armor, and life (±5% variance), separate from explicit affixes. Old gear saves migrate automatically.
 
-Visit the Village to resume a saved expedition, begin a fresh unlocked stage, or craft keystones using orbs. A keystone opens a single-entry rift: four monster waves followed by a randomly selected rift guardian. Death or leaving closes the run. Rift modifiers increase difficulty and equipment item level, quantity, and rarity.
+Visit the Village to resume a saved expedition, begin a fresh unlocked stage, or modify a loot-dropped keystone with orbs at the altar. Orbs cannot create keystones. A keystone opens a single-entry rift: four monster waves followed by a randomly selected rift guardian. Death or leaving closes the run. Rift modifiers increase difficulty and equipment item level, quantity, and rarity.
 
 Expeditions vary between ancient groves, ruined causeways, marsh trails, and rocky ridges. Routes use different nine-clearing paths, room shapes, and corridor widths while remaining linear. Six bosses each have a distinct appearance and two alternating abilities drawn from slams, brambles, charges, frost, fire, lightning, and ring attacks.
 
