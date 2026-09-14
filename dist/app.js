@@ -27,7 +27,7 @@ const classInfo=()=>HERO_CLASSES[state.heroClass]||HERO_CLASSES.vanguard;
 function skillBar(){return skillsFor(state).map(s=>`<button class="skill-button" data-skill="${s.id}" title="${s.description}"><span class="skill-art ${s.id}">${icon(s.icon)}<kbd>${s.key}</kbd></span><span class="skill-copy"><strong>${s.name}</strong><small id="skill-${s.id}-status">${s.level===1?'Ready':`Unlocks at level ${s.level}`}</small></span><span class="skill-cooldown" id="skill-${s.id}-cooldown"></span></button>`).join('');}
 function nav(){return [['adventure','compass','Adventure'],['village','tree','Village'],['hero','user','Character'],['inventory','bag','Inventory'],['forge','hammer','Forge'],['journal','book','Journal']].map(([id,i,label])=>`<button class="nav-item ${view===id?'active':''}" data-view="${id}" aria-label="${label}" aria-current="${view===id?'page':'false'}">${icon(i)}<span>${label}</span>${id==='inventory'?'<b id="bag-count" class="nav-badge">3</b>':''}${id==='hero'?'<i id="talent-dot" hidden></i>':''}</button>`).join('');}
 function mount(){
- $('app').innerHTML=`<aside class="sidebar"><button class="brand" data-view="adventure" aria-label="Everfrost home">${icon('tree')}<span>EVERFROST<small>AN IDLE ADVENTURE</small></span></button><div class="nav-caption">YOUR JOURNEY</div><nav aria-label="Main navigation" id="navigation">${nav()}</nav><div class="sidebar-bottom"><div class="chapter-card">${icon('feather')}<small>CHAPTER I</small><strong>A world beyond<br>the familiar.</strong><span>Your legend starts here.</span></div><button class="nav-item" data-action="help">${icon('info')}<span>How to play</span></button><div class="saved-indicator">${icon('check')}<span id="save-status">Progress saved locally</span></div><small class="version">EVERFROST · v2.6</small></div></aside>
+ $('app').innerHTML=`<aside class="sidebar"><button class="brand" data-view="adventure" aria-label="Everfrost home">${icon('tree')}<span>EVERFROST<small>AN IDLE ADVENTURE</small></span></button><div class="nav-caption">YOUR JOURNEY</div><nav aria-label="Main navigation" id="navigation">${nav()}</nav><div class="sidebar-bottom"><div class="chapter-card">${icon('feather')}<small>CHAPTER I</small><strong>A world beyond<br>the familiar.</strong><span>Your legend starts here.</span></div><button class="nav-item" data-action="help">${icon('info')}<span>How to play</span></button><div class="saved-indicator">${icon('check')}<span id="save-status">Progress saved locally</span></div><small class="version">EVERFROST · v2.6.1</small></div></aside>
  <div class="app-body"><header class="topbar"><div class="breadcrumb">${icon('tree')}<span>The Northern Realms</span><span class="slash">/</span><strong id="breadcrumb-view">Adventure</strong></div><div class="currencies"><span title="Gold · Earned in battle and spent at the forge">${icon('coin')}<b id="gold">120</b></span><span class="orbs" title="Orbs · Dropped by defeated foes; used at the forge">${icon('sparkles')}<b id="orbs">0</b></span></div><button class="button town-teleport" data-view="village" id="town-teleport">${icon('tree')} Village</button><div class="header-actions"><button class="icon-button" data-action="sound" aria-label="Enable sound" id="sound-button">${icon('mute')}</button><button class="icon-button" data-action="settings" aria-label="Settings">${icon('settings')}</button><button class="icon-button" data-action="account" aria-label="Account and cloud saves" id="account-button" title="Account">${icon('user')}</button></div></header>
  <main><section class="page-heading"><div><div class="eyebrow"><span class="small-rule"></span>THE ADVENTURE CONTINUES</div><h1 id="page-title">Into the wild.</h1><p id="page-subtitle">A quiet forest. An unwritten legend. Your next step.</p></div><button class="button map-button" data-action="map">${icon('map')} World map ${icon('arrow')}</button></section>
  <p id="action-status" class="action-status" role="status" hidden></p><div id="adventure-view"><div class="adventure-layout"><section class="expedition"><div class="section-bar"><div class="region-heading">${icon('compass')}<strong id="region-name">Mistwood</strong><span class="tag">EXPLORING</span></div><button class="text-button" data-action="map" id="stage-label">Stage 1–1 ${icon('down')}</button></div>
@@ -64,11 +64,11 @@ function update(){
 function announce(message){const el=$('action-status');el.textContent=message;el.hidden=false;}
 function saveLabel(){if(!cloud?.uid)return 'Progress saved locally';
  return {synced:'Synced to your account',syncing:'Syncing to your account…',offline:'Saved on this device · syncs when online',conflict:'Save conflict · open Account',choice:'Choose which progress to keep',unavailable:'Cloud save unavailable · playing locally'}[cloud.status]||'Progress saved locally';}
-function persist(){const now=Date.now();let ok;
+function persist(syncNow=false){const now=Date.now();let ok;
  if(cloud?.uid&&cloud.record){state.lastSave=now;ok=cloud.save(JSON.stringify(state));}
  else ok=saveGame(state,undefined,now);
  $('save-status').textContent=ok?saveLabel():'Save unavailable in this browser';$('footer-save').innerHTML=ok?`Autosave enabled ${icon('check')}`:'Progress could not be saved';
- if(cloud?.record?.dirty&&now-lastFlush>15000){lastFlush=now;cloud.flush();}
+ if(cloud?.record?.dirty&&(syncNow||now-lastFlush>15000)){lastFlush=now;cloud.flush();}
 }
 let cloud=null,account=null,accountUser=null,lastFlush=0,conflictShown=false;
 function adoptRecord(payload){
@@ -97,7 +97,7 @@ connectAccount().then(fb=>{
   await cloud.connect(user?user.uid:null);
   updateAccountButton();
   if(!user){persist();return;}
-  if((cloud.status==='synced'||cloud.status==='offline')&&cloud.record)adoptRecord(cloud.record.payload);
+  if(['synced','offline','syncing'].includes(cloud.status)&&cloud.record)adoptRecord(cloud.record.payload);
   else if(cloud.status==='choice')accountModal();
   else if(cloud.status==='unavailable')announce('Cloud saves are unavailable. Playing on this device only.');
   persist();
@@ -107,18 +107,18 @@ connectAccount().then(fb=>{
 window.addEventListener('online',()=>cloud?.flush());
 function sound(freq=440){if(!state.settings.sound)return;try{audioContext??=new (window.AudioContext||window.webkitAudioContext)();void audioContext.resume();const o=audioContext.createOscillator(),g=audioContext.createGain();o.type='sine';o.frequency.value=freq;g.gain.setValueAtTime(.035,audioContext.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioContext.currentTime+.15);o.connect(g).connect(audioContext.destination);o.start();o.stop(audioContext.currentTime+.15);}catch{/* Sound is optional. */}}
 function processEvents(events){
- let refreshHero=false,refreshView=false;
+ let refreshHero=false,refreshView=false,syncMilestone=false;
  for(const e of events){
   battle.event(e);
   if(e.type==='level'){refreshHero=true;refreshView=true;}
   if(['loot','filteredLoot'].includes(e.type)&&view==='inventory')refreshView=true;
-  if(e.type==='keystone'){refreshView=true;persist();}
-  if(['riftWave','riftComplete'].includes(e.type))persist();
-  if(e.type==='riftFailed'){navigate('village');persist();}
+  if(e.type==='keystone'){refreshView=true;syncMilestone=true;}
+  if(['complete','stage','newMap','riftWave','riftComplete'].includes(e.type))syncMilestone=true;
+  if(e.type==='riftFailed'){navigate('village');syncMilestone=true;}
   if(e.type==='kill'&&['forge','journal','hero'].includes(view))refreshView=true;
   if(e.type==='hit')sound(180);if(e.type==='skill')sound(520);
  }
- if(refreshHero)renderHero();if(refreshView&&view!=='adventure')renderSecondary();if(events.length)update();
+ if(refreshHero)renderHero();if(refreshView&&view!=='adventure')renderSecondary();if(events.length)update();if(syncMilestone)persist(true);
 }
 function navigate(next){if(!['adventure','village','hero','inventory','forge','journal'].includes(next))return;
  if(next==='village'&&state.location!=='village'){teleportVillage(state);persist();update();}
@@ -194,7 +194,7 @@ document.addEventListener('click',e=>{
  if(b.dataset.action==='close')$('dialog').close();
  if(b.dataset.action==='account')accountModal();
  if(b.dataset.action==='sign-in')account?.signIn().catch(()=>announce('Sign-in did not complete. Try again.'));
- if(b.dataset.action==='sign-out'){persist();$('dialog').close();account?.signOut();}
+ if(b.dataset.action==='sign-out'){persist(true);$('dialog').close();(cloud?.flush()||Promise.resolve()).finally(()=>account?.signOut());}
  if(b.dataset.action==='sync-now'){cloud?.flush();$('dialog').close();announce('Syncing to your account…');}
  if(b.dataset.action==='use-device-save'){if(cloud?.start(JSON.stringify(state))){cloud.flush();$('dialog').close();announce('This device’s progress now syncs to your account.','success');}}
  if(b.dataset.action==='use-fresh-save'){const fresh=createGame();if(cloud?.start(JSON.stringify(fresh))){state=fresh;$('dialog').close();cloud.flush();renderHero();navigate('adventure');update();announce('A new legend begins on your account.','success');}}
@@ -243,8 +243,8 @@ mount();const battle=new Battlefield($('battle-canvas'),()=>state,(x,y,targetId)
 if(state.location==='village')navigate('village');
 let previous=performance.now(),uiElapsed=0;setInterval(()=>{const now=performance.now(),dt=Math.min(.5,(now-previous)/1000);previous=now;if(document.hidden)return;processEvents(tick(state,dt));uiElapsed+=dt;if(uiElapsed>.25){update();uiElapsed=0;}},100);
 setInterval(()=>{if(!document.hidden)persist();},5000);
-document.addEventListener('visibilitychange',()=>{if(document.hidden)persist();else{const rewards=offlineRewards(state);if(rewards)showOffline(rewards);previous=performance.now();update();}});
-window.addEventListener('pagehide',persist);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)persist(true);else{const rewards=offlineRewards(state);if(rewards)showOffline(rewards);previous=performance.now();update();}});
+window.addEventListener('pagehide',()=>persist(true));
 function showOffline(r){addLog(state,'While away: '+fmt(r.gold)+' gold, '+fmt(r.xp)+' experience and '+(r.orbs||[]).length+' orbs.','loot');renderHero();update();persist();}
 if(loaded.migrated)announce('Your hero is ready for the new expeditions. Equipment and progress preserved.','success');
 if(loaded.offline)setTimeout(()=>showOffline(loaded.offline),600);if(loaded.recovered)announce('The previous save could not be read. A new journey has begun.');

@@ -74,7 +74,8 @@ export class CloudSaves {
     let remote = null, failed = false;
     try { remote = await this.remote.read(uid); } catch { failed = true; }
     if (session !== this.session || this.uid !== uid) return;
-    const cached = this.cache(uid);
+    let cached = this.cache(uid);
+    if (cached) { try { validatePayload(cached.payload); } catch { cached = null; } }
     if (failed) {
       if (cached) { this.record = cached; this.setStatus('offline'); }
       else this.setStatus('unavailable');
@@ -83,11 +84,18 @@ export class CloudSaves {
     if (remote) {
       if (!Number.isSafeInteger(remote.revision) || remote.revision < 0) { this.setStatus('unavailable'); return; }
       try { validatePayload(remote.payload); } catch { this.setStatus('unavailable'); return; }
-      // Unflushed local work always conflicts, regardless of revision order.
-      const dirty = cached?.dirty && cached.payload !== remote.payload;
-      this.record = dirty ? cached : {version: 1, revision: remote.revision, payload: remote.payload, dirty: false};
-      this.remoteConflict = dirty ? remote : null;
-      this.setStatus(dirty ? 'conflict' : 'synced');
+      const localChanged = cached && cached.payload !== remote.payload;
+      const pendingFromThisRevision = cached?.dirty && localChanged && cached.revision === remote.revision;
+      const conflict = localChanged && !pendingFromThisRevision
+        && (cached.dirty || cached.revision >= remote.revision);
+      // A dirty cache based on the current cloud revision is this browser's
+      // acknowledged, not-yet-uploaded work. Resume it without showing the
+      // older cloud payload, then let the normal flush advance the revision.
+      this.record = pendingFromThisRevision || conflict
+        ? cached
+        : {version: 1, revision: remote.revision, payload: remote.payload, dirty: false};
+      this.remoteConflict = conflict ? remote : null;
+      this.setStatus(conflict ? 'conflict' : pendingFromThisRevision ? 'syncing' : 'synced');
     } else if (cached) {
       this.record = cached;
       this.setStatus(cached.dirty ? 'offline' : 'synced');

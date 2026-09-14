@@ -169,8 +169,13 @@ Optional Google sign-in adds a second persistence layer (`dist/cloud-saves.js`,
   clobbering newer progress. The player then chooses which copy continues.
 - A per-account local mirror lives at `everfrost.cloud.<uid>` and carries a
   `dirty` flag for work uploaded late (offline play, dropped connection). On
-  reconnect a dirty mirror is flushed, or surfaces as a conflict if the cloud
-  moved ahead.
+  reconnect a dirty mirror based on the current cloud revision is restored and
+  flushed automatically. It surfaces as a conflict only if another session
+  advanced or replaced that cloud revision.
+- Guardian clears, stage transitions, rift milestones, tab hiding, and sign-out
+  request an immediate upload so a new browser session cannot fall back to an
+  older unlocked stage. The 15-second background flush remains a fallback for
+  ordinary combat progress.
 - The guest save (`everfrost.save.v1`) is never written while signed in, so it
   stays a genuine pre-sign-in backup. First sign-in on an account with no
   cloud save asks whether to import this device's progress or start fresh.

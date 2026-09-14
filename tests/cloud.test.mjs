@@ -49,7 +49,16 @@ test('two devices cannot silently overwrite each other and resolution checks the
  b.save(payload(600));await b.flush();assert.equal(JSON.parse(remote.saves.get('alice').payload).gold,600);
 });
 
-test('dirty cached progress detects conflicts on reload',async()=>{
+test('a new session resumes same-revision cached stage progress and uploads it',async()=>{
+ const storage=memory(),remote=backend(),older=JSON.parse(payload(400)),newer=JSON.parse(payload(450));
+ older.stage=8;older.maxStage=8;newer.stage=9;newer.maxStage=9;
+ storage.setItem(accountKey('alice'),JSON.stringify(record(JSON.stringify(newer),2,true)));
+ remote.saves.set('alice',record(JSON.stringify(older),2));
+ const c=new CloudSaves({storage,remote});await c.connect('alice');assert.equal(c.status,'syncing');assert.equal(JSON.parse(c.record.payload).stage,9);
+ await c.flush();assert.equal(c.status,'synced');assert.equal(JSON.parse(remote.saves.get('alice').payload).stage,9);assert.equal(c.record.revision,3);
+});
+
+test('dirty cached progress conflicts only when another session advanced the cloud revision',async()=>{
  const storage=memory(),remote=backend();storage.setItem(accountKey('alice'),JSON.stringify(record(payload(400),1,true)));remote.saves.set('alice',record(payload(500),2));
  const c=new CloudSaves({storage,remote});await c.connect('alice');assert.equal(c.status,'conflict');assert.equal(JSON.parse(c.record.payload).gold,400);
  await c.resolve('local');assert.equal(JSON.parse(remote.saves.get('alice').payload).gold,400);assert.equal(c.record.revision,3);
