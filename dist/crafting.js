@@ -36,7 +36,7 @@ export function craft(s,item,opId,rng=Math.random){
   case 'chaos':rollModifierCount(next,6,rng);break;
   case 'augment':case 'regal':case 'exalt':if(!randomSideAffix(next,rng))return {ok:false,reason:'No legal modifier slot is available.'};break;
   case 'scour':next.affixes=[];break;
-  case 'divine':rerollValues(next,rng);next.implicits=rollImplicits(next.slot,next.itemLevel,rng);if(UNIQUE_EFFECTS[next.unique]?.stats)next.uniqueRoll=Math.round((.9+rng()*.2)*1000)/1000;break;
+  case 'divine':rerollValues(next,rng);next.implicits=rollImplicits(next.slot,next.itemLevel,rng,next.weaponType);if(UNIQUE_EFFECTS[next.unique]?.stats)next.uniqueRoll=Math.round((.9+rng()*.2)*1000)/1000;break;
  }
  const slots=affixSlots(next);if(slots.prefix>3||slots.suffix>3||next.affixes.length>6||next.affixes.some(a=>!AFFIXES[a.id]))return {ok:false,reason:'Invalid modifier arrangement.'};
  renameItem(next);Object.assign(item,next);s.gold-=cost.gold;s.orbs[opId]--;s.crafted=(s.crafted||0)+1;

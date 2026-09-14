@@ -8,12 +8,12 @@
 
 | Export | Purpose |
 |---|---|
-| `REGIONS`, `SKILLS`, `QUESTS` | Static content tables (see game-systems.md) |
+| `REGIONS`, `SKILLS`, `HERO_CLASSES`, `QUESTS` | Static content tables (see game-systems.md) |
 | `createGame()` | Fresh hero + `startExpedition`; all state fields |
 | `stats()`, `combatStats()` | Derived combat attributes; the live numbers |
 | `tick(s, dt)` | Advance simulation in ≤0.1s steps, returns events |
 | `useSkill()`, `movePlayer()` | Player actions |
-| `equip`, `salvage`, `upgrade`, `learn`, `travel` | Resource-mutating services |
+| `equip`, `salvage`, `upgrade`, `learn`, `chooseClass`, `travel` | Resource-mutating services |
 | `defeatEnemy`, `hurtHero`, `effectiveDamage` | Combat math hooks |
 | `saveGame()`, `loadGame()`, `offlineRewards()` | Persistence & offline progression |
 | `startExpedition`, `spawnEnemy` | Expedition/layout setup |
@@ -28,6 +28,13 @@
 | `findPath(map, from, to)` | BFS on the tile grid |
 | `moveAlong(actor, dt, speed)` | Step an actor along its path |
 | `reveal(map, pos, radius)` | Fog-of-war discovery |
+
+**`dist/classes.js`** — Vanguard, Ranger, and Mage base progression plus their
+nine active skill definitions and class-specific skill selection.
+
+**`dist/gear.js`** — equipment slots and four weapon profiles. Weapon profiles
+provide item-level implicit rates plus attack interval, attack range, critical,
+and elemental behavior.
 
 **`dist/loot.js`** — gear modifiers (the expansion in v2.2).
 
@@ -96,7 +103,7 @@ loop, and `drawMinimap`.
 ```
 index.html
   └─ app.js
-       ├─ engine.js ── world.js, loot.js, monsters.js
+       ├─ engine.js ── classes.js, gear.js, world.js, loot.js, monsters.js
        ├─ icons.js
        ├─ renderer.js ── actors.js, world.js, monsters.js
        ├─ loot.js
@@ -134,6 +141,7 @@ All combat events are flat objects with a `type` discriminator produced by
 | Event | Payload | UI reaction |
 |---|---|---|
 | `hit` | value, critical, x, y | damage float + hit sound |
+| `playerAttack` | weaponType, source/target coordinates | bow or staff projectile tracer |
 | `hurt` | value, x, y | hero damage float |
 | `kill` | gold, xp, tier, boss, x, y | gold float, logout |
 | `level` | value | toast + full re-render |

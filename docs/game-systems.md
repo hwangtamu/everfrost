@@ -22,18 +22,21 @@ REGIONS = [
 
 ## Character math (`stats` / `combatStats`)
 
-Base values, then equipment power, then talents and affixes, then caps:
+Class base values, then equipment power, talents and affixes, then caps. `classes.js`
+defines Vanguard, Ranger and Mage progression and their three active skills.
+Vanguard has the strongest base armor and life, Ranger has the best base movement
+and critical chance, and Mage multiplies elemental damage by 1.2.
 
 | Stat | Formula (condensed) | Cap |
 |---|---|---|
-| attack | `9 + 3·level + gear.attack + 3·might + affix.attack` | — |
-| defense | `2 + level + gear.defense + 2·guard + affix.defense` | — |
-| maxHp | `90 + 15·level + gear.maxHp + 18·vigor + affix.maxHp` | — |
-| crit | `8% + 1.5%·fortune + affix.critical/100` | 75% |
-| critMultiplier | `1.8 + affix.criticalMultiplier/100` | 4.0× |
-| attackSpeed | `(1 + haste/100) / 1.1` | haste ≤150% |
-| moveSpeed | `5.8 · (1 + movement/100)` | movement ≤100% |
-| attackRange | `1.9 + reach` | 6 tiles |
+| attack | `class attack + class growth·level + gear.attack + 3·might + affix.attack` | — |
+| defense | `class defense + class growth·level + gear.defense + 2·guard + affix.defense` | — |
+| maxHp | `class life + class growth·level + gear.maxHp + 18·vigor + affix.maxHp` | — |
+| crit | `class crit + weapon crit + 1.5%·fortune + affix.critical/100` | 75% |
+| critMultiplier | `class multiplier + affix.criticalMultiplier/100` | 4.0× |
+| attackSpeed | `(1 + haste/100) / weapon interval` | haste ≤150% |
+| moveSpeed | `class movement · (1 + movement/100)` | movement ≤100% |
+| attackRange | `weapon range + reach` | 8 tiles |
 | resist / leech / regen | affix-driven | 65% / 15% / — |
 
 `combatStats` layers in chill (−25% speed & attack speed when `effects.chill>0`)
@@ -88,13 +91,23 @@ hero death → respawn at camp, auto-pause, enemies recover HP/positions
 The 100 ms tick is partitioned into ≤0.1 s steps so 2× speed stays stable and
 testable (`tests` drive `tick(s, .1)` directly).
 
-## Skills
+## Classes and skills
 
-| Skill | Level | Cooldown | Effect |
+The class can be changed only while in the Village. `chooseClass` preserves
+level, mastery, gear, resources, maps and progression, resets cooldowns, and
+heals to the new class maximum. Any class may equip any weapon.
+
+| Class / skill | Level | Cooldown | Effect |
 |---|---|---|---|
-| Runic cleave (key 1) | 1 | 9 s | 3× attack damage, range = attackRange + 1.1 tiles |
-| Forest blessing (key 2) | 3 | 18 s | Heal 45% max HP + remove chill (Wildheart equipment → 60%) |
-| Thunderstrike (key 3) | 5 | 25 s | 5× attack as lightning, all visible enemies within 6 tiles |
+| Vanguard · Runic cleave (1) | 1 | 9 s | 3× damage, weapon range + 1.1 tiles |
+| Vanguard · Forest blessing (2) | 3 | 18 s | Heal 45% max HP + remove chill |
+| Vanguard · Thunderstrike (3) | 5 | 25 s | 5× attack as elemental, 6 tiles |
+| Ranger · Splinter volley (1) | 1 | 7 s | 2.4× damage, weapon range + 0.7 tiles |
+| Ranger · Second wind (2) | 3 | 15 s | Heal 38% max HP + remove chill |
+| Ranger · Rain of arrows (3) | 5 | 22 s | 4.2× damage, 7 tiles |
+| Mage · Arcane nova (1) | 1 | 8 s | 3.2× attack as elemental, 4.5 tiles, bypasses armor |
+| Mage · Runic ward (2) | 3 | 17 s | Heal 42% max HP + remove chill |
+| Mage · Falling star (3) | 5 | 24 s | 6× attack as elemental, 7 tiles, bypasses armor |
 
 Skills respect cooldowns, unlock levels, and the completed-map state; the UI
 disables them with "No targets in range" when nothing is reachable.
@@ -224,7 +237,7 @@ UI control).
 
 ## Eleven-slot gear and implicit stats
 
-Equipment slots: head, neck, shoulder, chest, wrist, hand, belt, leg, foot, leftRing, rightRing. Runic Bands fit either finger and share attack/life implicits and affix pools. `gear.js` defines each slot's damage, armor, and life rates. Each implicit rolls `rate × itemLevel × uniform(0.95, 1.05)`, rounded to one decimal. Rarity does not multiply base stats. All equipped implicits contribute to combat along with explicit modifiers. Each forge rank adds 10% of the original base values; orbs and essences change only explicits, while Divine can reroll implicit base values and variable unique rolls. Unique powers work in any applicable slot and do not stack duplicate powers. `UNIQUE_EFFECTS` in `loot.js` holds a pool of named powers per slot — each unique drop rolls one power from its slot's pool, and the item name is `power name + base name`. Powers either carry `stats` (flat or per-item-level bonuses folded into `stats()` like affixes) or a special mechanic applied by id in the engine:
+Equipment slots: head, neck, shoulder, chest, wrist, weapon (`hand` in saves), belt, leg, foot, leftRing, rightRing. Weapons randomly roll as an Iron Longsword, Frostforged Greatsword, Yew Longbow, or Runed Battlestaff. Greatswords are slow, hard-hitting melee weapons; bows are fast, long-ranged, and add 4% critical chance; staves fight at range and multiply elemental damage by 1.2; swords are balanced. Runic Bands fit either finger and share attack/life implicits and affix pools. `gear.js` defines every base's damage, armor, and life rates. Each implicit rolls `rate × itemLevel × uniform(0.95, 1.05)`, rounded to one decimal. All equipped implicits contribute to combat along with explicit modifiers. Each forge rank adds 10% of the original base values; orbs and essences change only explicits, while Divine can reroll implicit base values and variable unique rolls. Unique powers work in any applicable slot and do not stack duplicate powers. `UNIQUE_EFFECTS` in `loot.js` holds a pool of named powers per slot — each unique drop rolls one power from its slot's pool, and the item name is `power name + base name`.
 
 The catalog contains 44 distinct uniques: six each for hand and neck, four for each other gear type. Both fingers share the same four ring uniques. Unique rarity drop chances are unchanged; selection within each slot pool is uniform.
 

@@ -1,6 +1,6 @@
 # Save format & persistence
 
-Storage: **localStorage**, key `everfrost.save.v1` (kept even at v5 so old
+Storage: **localStorage**, key `everfrost.save.v1` (kept even at v6 so old
 heroes migrate in place). Saves are origin-scoped; local and hosted URLs have
 separate saves. Clearing browser data removes progress.
 
@@ -8,8 +8,9 @@ separate saves. Clearing browser data removes progress.
 
 ```js
 {
-  version: 5,
+  version: 6,
   name: 'Wanderer',            // ≤20 chars
+  heroClass: 'vanguard'|'ranger'|'mage',
   level: 1, xp: 0,             // xp vs xpRequired(level)
   gold: 120, orbs: {transmute:0, augment:0, regal:0, alchemy:0, chaos:0, exalt:0, scour:0, divine:0}, // orbs only drop from kills
   stage: 1, maxStage: 1,       // maxStage gates world-map travel
@@ -22,7 +23,7 @@ separate saves. Clearing browser data removes progress.
   essences: [{id, affix:{id, tier, value, min, max}, count}],  // recovered modifiers; identical ones stack
   talents: {might, guard, vigor, fortune},
   points: 0,
-  cooldowns: {cleave, mend, storm},   // never persisted live; always reset to 0
+  cooldowns: {cleave, mend, storm, volley, secondWind, arrowRain, arcaneNova, manaWard, meteor}, // reset to 0
   enemy: null, enemies: [],    // live expedition (persisted for v2)
   attackTimer: 0, attackCount: 0, respawn: 0,
   log: [{id, text, type, time}],  // ≤30
@@ -43,6 +44,7 @@ separate saves. Clearing browser data removes progress.
 {
   id,               // crypto.randomUUID()
   slot: 'head'|'neck'|'shoulder'|'chest'|'wrist'|'hand'|'belt'|'leg'|'foot'|'leftRing'|'rightRing',
+  weaponType: 'sword'|'greatsword'|'bow'|'staff',  // hand-slot items only
   name,             // e.g. "Forceful Iron Longsword of Haste"
   itemLevel,        // stage of the drop
   implicits,        // per-stat base rolls; +10% of base per upgrade
@@ -63,6 +65,11 @@ is only changeable with a Divine Orb.
 
 Ring slots are added as `null` when loading older saves. A ring's `slot` becomes the selected finger when equipped; its identity, implicits, affixes, and upgrade rank are preserved. Older filters that selected every previous slot expand to include rings, while restricted filters retain their choices. No save-version reset is required.
 
+Version 6 adds `heroClass`, hand-item `weaponType`, and loot-filter `weaponTypes`.
+Older heroes become Vanguards, and every existing hand item becomes a one-hand
+sword without rerolling its implicits, modifiers, upgrade rank, unique power, or
+lock. Older loot filters accept all four weapon types by default.
+
 ### Enemy schema (in-flight expeditions)
 
 ```js
@@ -81,7 +88,7 @@ are restored, not trusted.
 path** on any violation, which yields a fresh `createGame()` with
 `recovered: true`:
 
-1. `version ∈ {1, 2, 3, 4, 5}`; integer level ≥1; stage ≥1; arrays/talents exist.
+1. `version ∈ {1, 2, 3, 4, 5, 6}`; integer level ≥1; stage ≥1; arrays/talents exist.
 2. Every inventory & equipment item passes `validItem` (id/name strings, valid
    slot, finite power ≥0, integer upgrade ≥0).
 3. `name` is non-empty, `log[]` entries have text + finite time, `claimed`

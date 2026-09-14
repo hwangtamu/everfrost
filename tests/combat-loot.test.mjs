@@ -63,7 +63,7 @@ test('chill, enemy enhancements, and live metrics share the actual combat formul
   assert.equal(enemy.movementSpeed,2.1*1.25);assert.equal(enemy.attackSpeed,(1/2.3)*1.3*1.25);
   assert.equal(enemy.crit,.03+.2);assert.equal(enemy.critMultiplier,2);
   assert.equal(combatMetrics(s).find(m=>m.id==='multiplier').value,'180%');
-  const item=makeItem('hand',0);item.affixes=[{id:'reach',value:.5},{id:'precision',value:3},{id:'ferocity',value:15}];
+  const item=makeItem('hand',0,1,()=>.5,'sword');item.affixes=[{id:'reach',value:.5},{id:'precision',value:3},{id:'ferocity',value:15}];
   const changes=equipmentChanges(item,s);
   assert.equal(changes.find(c=>c.label==='Attack range').delta,.5);
   assert.equal(changes.find(c=>c.label==='Critical strike chance').delta,3);

@@ -1,7 +1,8 @@
 import {recoverEssences,normalizeEssences} from './essences.js';
 import {BOSSES,bossIdentity,castBossSkill,hazardHits,finishBossHazard} from './bosses.js';
 import {makeKeystone,validKeystone,rollKeystone,riftBonuses,rewardQuantity,makeRiftMap,RIFT_WAVES,KEYSTONE_RECIPES} from './keystones.js';
-import {GEAR,GEAR_SLOTS,RING_SLOTS,LEGACY_SLOTS,canonicalSlot,rollImplicits,implicitStats,migrateGear} from './gear.js';
+import {GEAR,GEAR_SLOTS,RING_SLOTS,WEAPON_TYPES,WEAPON_TYPE_IDS,LEGACY_SLOTS,canonicalSlot,rollImplicits,implicitStats,migrateGear,gearName,weaponType} from './gear.js';
+import {HERO_CLASSES,HERO_CLASS_IDS,SKILLS,skillsFor,skillById,heroClass} from './classes.js';
 import {generateMap, seededRandom, distance, walkable, findPath, moveAlong, reveal, hasLineOfSight} from './world.js';
 import {itemGrade,normalizeItemModifiers,AFFIXES, UNIQUE_EFFECTS, rollAffixes, affixBonuses, lootRarity, uniquesForSlot, uniqueBonuses} from './loot.js';
 import {ENEMY_TIERS, MODIFIERS, rollModifiers} from './monsters.js';
@@ -16,11 +17,7 @@ export const REGIONS = [
   {name:'Ember Hollow', subtitle:'Something stirs beneath the ash.', start:11, color:'#d4936f', foes:['Cinder Hound','Ash Wraith','Emberling'], boss:'The Ashen King'},
   {name:'The Starless Wild', subtitle:'Beyond the edge of every map.', start:16, color:'#aa97cc', foes:['Void Stalker','Moon Wraith','Dusk Serpent'], boss:'The Forgotten One'}
 ];
-export const SKILLS = [
-  {id:'cleave', name:'Runic cleave', icon:'swords', key:'1', level:1, cooldown:9, description:'Deal 3× attack damage within your attack range + 1.1 tiles. Each target can be critically struck.'},
-  {id:'mend', name:'Forest blessing', icon:'leaf', key:'2', level:3, cooldown:18, description:'Restore 45% of your maximum health and remove chill.'},
-  {id:'storm', name:'Thunderstrike', icon:'zap', key:'3', level:5, cooldown:25, description:'Strike visible enemies within 6 tiles for 5× attack as lightning damage. Each target can be critically struck.'}
-];
+export {HERO_CLASSES,SKILLS,skillsFor};
 const id = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 // Crafting orbs are a per-type count. They can only be obtained by defeating
 // enemies (see rollOrbs / offlineOrbs); applying one also costs gold.
@@ -37,17 +34,19 @@ export function stats(s) {
   for (const stat in u) a[stat] = (a[stat]||0) + u[stat];
   if (s.effects?.soulgorge > 0) { a.haste += 25; a.movement += 25; }
   const bonus = stat => eq.reduce((n,item) => Math.round((n+(implicitStats(item)[stat]||0))*10)/10,0);
-  const attackSpeed = (1 + Math.min(150, a.haste) / 100) / BASE_COMBAT.attackInterval;
+  const archetype=heroClass(s),base=archetype.base,weapon=WEAPON_TYPES[weaponType(s.equipment.hand)];
+  const attackSpeed = (1 + Math.min(150, a.haste) / 100) / weapon.attackInterval;
+  const elementalMultiplier=(weapon.elementalMultiplier||1)*(archetype===HERO_CLASSES.mage?1.2:1);
   return {
-    attack: 9 + s.level * 3 + bonus('attack') + s.talents.might * 3 + a.attack,
-    defense: 2 + s.level + bonus('defense') + s.talents.guard * 2 + a.defense,
-    maxHp: 90 + s.level * 15 + bonus('maxHp') + s.talents.vigor * 18 + a.maxHp,
-    crit: Math.min(.75, .08 + s.talents.fortune * .015 + a.critical / 100),
-    critMultiplier: Math.min(4, BASE_COMBAT.critMultiplier + a.criticalMultiplier / 100),
-    movementSpeed: BASE_COMBAT.movementSpeed * (1 + Math.min(100, a.movement) / 100),
-    attackRange: Math.min(6, BASE_COMBAT.attackRange + a.reach),
+    attack: base.attack + s.level * base.attackPerLevel + bonus('attack') + s.talents.might * 3 + a.attack,
+    defense: base.defense + s.level * base.defensePerLevel + bonus('defense') + s.talents.guard * 2 + a.defense,
+    maxHp: base.maxHp + s.level * base.hpPerLevel + bonus('maxHp') + s.talents.vigor * 18 + a.maxHp,
+    crit: Math.min(.75, base.crit + (weapon.critBonus||0) + s.talents.fortune * .015 + a.critical / 100),
+    critMultiplier: Math.min(4, base.critMultiplier + a.criticalMultiplier / 100),
+    movementSpeed: base.movementSpeed * (1 + Math.min(100, a.movement) / 100),
+    attackRange: Math.min(8, weapon.attackRange + a.reach),
     attackSpeed, attackInterval: 1 / attackSpeed,
-    fire: a.fire, cold: a.cold, lightning: a.lightning, resist: Math.min(65, a.resist),
+    fire:a.fire*elementalMultiplier,cold:a.cold*elementalMultiplier,lightning:a.lightning*elementalMultiplier,resist: Math.min(65, a.resist),
     leech: Math.min(15, a.leech), regen: a.regen, haste: Math.min(150, a.haste)
   };
 }
@@ -77,35 +76,37 @@ export function enemyStats(s,e) {
 }
 
 export const withinReach = (s,from,to,range) => distance(from,to)<=range && hasLineOfSight(s.map,from,to);
-export const skillRange = (s,id) => id==='cleave'?stats(s).attackRange+1.1:id==='storm'?6:0;
+export const skillRange = (s,id) => {const def=skillById(id);if(!def)return 0;const range=def.range;return range==='weaponPlus'?stats(s).attackRange+1.1:range==='weaponPlusSmall'?stats(s).attackRange+.7:Number(range)||0;};
 export const skillTargets = (s,id) => livingEnemies(s).filter(e=>withinReach(s,s.player,e,skillRange(s,id)));
 
-export function makeItem(slot, rarity = 0, stage = 1, rng = Math.random) {
+export function makeItem(slot, rarity = 0, stage = 1, rng = Math.random, requestedWeaponType) {
   slot=canonicalSlot(slot);
   if(!GEAR[slot])throw new Error('Unknown gear slot');
   stage=Number.isSafeInteger(stage)&&stage>0?stage:1;
-  const implicits=rollImplicits(slot,stage,rng);
+  const chosenWeapon=slot==='hand'?(WEAPON_TYPES[requestedWeaponType]?requestedWeaponType:WEAPON_TYPE_IDS[Math.floor(rng()*WEAPON_TYPE_IDS.length)]):null;
+  const implicits=rollImplicits(slot,stage,rng,chosenWeapon);
   const affixes = rollAffixes(slot, rarity, stage, rng);
   const pool = rarity === 3 ? uniquesForSlot(slot) : [];
   const unique = pool.length ? pool[Math.floor(rng()*pool.length)] : null;
   const prefix = affixes.find(a => AFFIXES[a.id].kind === 'prefix');
   const suffix = affixes.find(a => AFFIXES[a.id].kind === 'suffix');
-  const name = unique ? unique.name+' '+GEAR[slot].name : `${prefix ? AFFIXES[prefix.id].name + ' ' : ''}${GEAR[slot].name}${suffix ? ' ' + AFFIXES[suffix.id].name : ''}`;
-  return {id:id(), slot, name, itemLevel:stage, implicits, upgrade:0, affixes, modifierVersion:2, unique:unique?unique.id:null,...(unique?.stats?{uniqueRoll:1}:{})};
+  const baseName=slot==='hand'?WEAPON_TYPES[chosenWeapon].name:GEAR[slot].name;
+  const name = unique ? unique.name+' '+baseName : `${prefix ? AFFIXES[prefix.id].name + ' ' : ''}${baseName}${suffix ? ' ' + AFFIXES[suffix.id].name : ''}`;
+  return {id:id(), slot, name, itemLevel:stage, implicits, upgrade:0, affixes, modifierVersion:2, unique:unique?unique.id:null,...(chosenWeapon?{weaponType:chosenWeapon}:{}),...(unique?.stats?{uniqueRoll:1}:{})};
 }
 
 export function createGame(now = Date.now(), seed = Math.floor(Math.random() * 4294967296)) {
   const s = {
-    version:5, name:'Wanderer', level:1, xp:0, gold:120, stage:1, maxStage:1,
+    version:6, name:'Wanderer', heroClass:'vanguard', level:1, xp:0, gold:120, stage:1, maxStage:1,
     killsInStage:0, kills:0, bosses:0, crafted:0, hp:105, auto:true, advance:true, speed:1,
-    inventory:[], essences:[], orbs:zeroOrbs(), equipment:{...Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null])),hand:makeItem('hand'),chest:makeItem('chest')},
-    talents:{might:0,guard:0,vigor:0,fortune:0}, points:0, cooldowns:{cleave:0,mend:0,storm:0},
+    inventory:[], essences:[], orbs:zeroOrbs(), equipment:{...Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null])),hand:makeItem('hand',0,1,Math.random,'sword'),chest:makeItem('chest')},
+    talents:{might:0,guard:0,vigor:0,fortune:0}, points:0, cooldowns:Object.fromEntries(SKILLS.map(skill=>[skill.id,0])),
     enemy:null, enemies:[], attackTimer:0, attackCount:0, respawn:0, log:[], claimed:[],
     lastSave:now, playTime:0, runNumber:0, tierKills:{normal:0,magic:0,rare:0,unique:0},
     settings:{sound:false,motion:true}, hazards:[], effects:{chill:0}, died:false,
     groundLoot:[],lootFilter:normalizeLootFilter(),location:'expedition',returnPortal:false,expedition:null,keystones:[],riftPortal:null,rift:null,lastRift:null
   };
-  s.inventory = [makeItem('hand',1), makeItem('neck'), makeItem('chest',1)];
+  s.inventory = [makeItem('hand',1,1,Math.random,'greatsword'),makeItem('hand',1,1,Math.random,'bow'),makeItem('hand',1,1,Math.random,'staff'),makeItem('neck'),makeItem('chest',1)];
   startExpedition(s, seed);
   addLog(s,'Explore the connected clearings. Defeat enemies to reveal the stage guardian.','system');
   return s;
@@ -391,6 +392,7 @@ function advanceStep(s,dt,events,rng) {
   s.attackTimer = Math.min(s.attackTimer+dt,p.attackInterval+dt);
   if (enemy?.hp > 0 && (!enemy.boss||s.map.bossUnlocked) && withinReach(s,player,enemy,p.attackRange) && s.attackTimer+1e-9 >= p.attackInterval) {
     s.attackTimer = Math.max(0,s.attackTimer-p.attackInterval); s.attackCount++;
+    if(['bow','staff'].includes(weaponType(s.equipment.hand)))events.push({type:'playerAttack',weaponType:weaponType(s.equipment.hand),x:player.x,y:player.y,targetX:enemy.x,targetY:enemy.y});
     strikeEnemy(s,enemy,p.attack,p.fire+p.cold+p.lightning,events,rng);
     if (hasUnique(s,'echo') && s.attackCount%4 === 0 && enemy.hp > 0) strikeEnemy(s,enemy,p.attack,p.fire+p.cold+p.lightning,events,rng);
   }
@@ -436,16 +438,22 @@ export function tick(s,dt,rng=Math.random){
 }
 
 export function useSkill(s,id,rng=Math.random){
-  const def=SKILLS.find(x=>x.id===id);
-  if(s.location==='village'||!def||s.level<def.level||s.cooldowns[id]>0||s.map.completed)return [];
+  const def=skillById(id);
+  if(s.location==='village'||!def||def.classId!==s.heroClass||s.level<def.level||s.cooldowns[id]>0||s.map.completed)return [];
   const p=stats(s),targets=skillTargets(s,id);
-  if(id!=='mend'&&!targets.length)return [];
+  if(!def.heal&&!targets.length)return [];
   s.cooldowns[id]=def.cooldown;
   const events=[{type:'skill',id,x:s.player.x,y:s.player.y}];
-  if(id==='mend'){s.hp=Math.min(p.maxHp,s.hp+p.maxHp*(hasUnique(s,'wildheart')?.60:.45));s.effects.chill=0;events.push({type:'heal',x:s.player.x,y:s.player.y});}
-  else for(const enemy of targets){const mult=hasUnique(s,'spellweave')?1.25:1;if(id==='storm')strikeEnemy(s,enemy,0,(p.attack*5+p.lightning*5)*mult,events,rng);else strikeEnemy(s,enemy,p.attack*3*mult,(p.fire+p.cold+p.lightning)*3*mult,events,rng);}
+  if(def.heal){const amount=hasUnique(s,'wildheart')?def.heal+.15:def.heal;s.hp=Math.min(p.maxHp,s.hp+p.maxHp*amount);if(def.cleanse)s.effects.chill=0;events.push({type:'heal',x:s.player.x,y:s.player.y});}
+  else for(const enemy of targets){const mult=hasUnique(s,'spellweave')?1.25:1;const physical=p.attack*(def.physical||0)*mult;const elemental=(p.attack*(def.attackAsElemental||0)+(p.fire+p.cold+p.lightning)*(def.elemental||0))*mult;strikeEnemy(s,enemy,physical,elemental,events,rng);}
   if(!s.map.completed)selectTarget(s);
   return events;
+}
+
+export function chooseClass(s,classId){
+ if(s.location!=='village'||!HERO_CLASS_IDS.includes(classId)||s.heroClass===classId)return false;
+ s.heroClass=classId;s.cooldowns=Object.fromEntries(SKILLS.map(skill=>[skill.id,0]));s.effects={chill:0};s.hp=stats(s).maxHp;
+ addLog(s,`You now walk the path of the ${HERO_CLASSES[classId].name}.`,'system');return true;
 }
 
 export function equip(s,id,slot){
@@ -484,7 +492,7 @@ export function offlineRewards(s,now=Date.now()){
   if(seconds<60||!s.auto||s.location==='village'||s.location==='rift')return null;
   const p=combatStats({...s,effects:{chill:0}}),dps=p.dps;
   const averageHealth=(18+Math.pow(s.stage,1.18)*6)*1.7;
-  const travelTime=3*BASE_COMBAT.movementSpeed/p.movementSpeed;
+  const travelTime=3*heroClass(s).base.movementSpeed/p.movementSpeed;
   const kills=Math.floor(seconds/(averageHealth/dps+travelTime)*.5);
   const gold=kills*(6+s.stage*2),xp=kills*(7+s.stage*2);
   const orbs=offlineOrbs(kills);
@@ -541,7 +549,7 @@ export function enterRift(s,rng=Math.random){
   s.map=makeRiftMap(Math.floor(rng()*4294967296),s.stage);s.enemies=[];
   s.player={...s.map.entrance,path:[],pathTimer:0,manual:false,targetId:null};
   s.hp=stats(s).maxHp;s.auto=true;s.killsInStage=0;s.attackTimer=0;s.respawn=0;s.died=false;
-  s.effects={chill:0};s.cooldowns={cleave:0,mend:0,storm:0};s.hazards=[];
+  s.effects={chill:0};s.cooldowns=Object.fromEntries(SKILLS.map(skill=>[skill.id,0]));s.hazards=[];
   // Expedition ground loot stays with its map and is restored on return.
   s.expedition.groundLoot=s.groundLoot;s.groundLoot=[];
   spawnRiftWave(s,1,[],rng);return true;
@@ -607,12 +615,12 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
   try{
     const raw=storage.getItem(SAVE_KEY);if(!raw)return {state:createGame(now),offline:null};
     const data=JSON.parse(raw);
-    if(![1,2,3,4,5].includes(data.version)||!Number.isInteger(data.level)||data.level<1||!Number.isInteger(data.stage)||data.stage<1||!Array.isArray(data.inventory)||!data.equipment||!data.talents)throw Error('Invalid save');
+    if(![1,2,3,4,5,6].includes(data.version)||!Number.isInteger(data.level)||data.level<1||!Number.isInteger(data.stage)||data.stage<1||!Array.isArray(data.inventory)||!data.equipment||!data.talents)throw Error('Invalid save');
     const validItem=i=>i&&typeof i.id==='string'&&typeof i.name==='string'&&GEAR_SLOTS.includes(canonicalSlot(i.slot))&&Number.isInteger(i.upgrade)&&i.upgrade>=0;
     if(!data.inventory.every(validItem)||!Object.entries(data.equipment).every(([slot,item])=>GEAR_SLOTS.includes(canonicalSlot(slot))&&(item===null||(validItem(item)&&item.slot===slot))))throw Error('Invalid equipment');
     if(typeof data.name!=='string'||!data.name.trim()||!Array.isArray(data.log)||!data.log.every(x=>x&&typeof x.text==='string'&&Number.isFinite(x.time))||!Array.isArray(data.claimed))throw Error('Invalid hero');
     if(!['might','guard','vigor','fortune'].every(k=>Number.isInteger(data.talents[k])&&data.talents[k]>=0))throw Error('Invalid mastery');
-    const fresh=createGame(now),s={...fresh,...data,version:5,name:data.name.slice(0,20),settings:{sound:false,motion:true,...data.settings}};
+    const fresh=createGame(now),s={...fresh,...data,version:6,name:data.name.slice(0,20),heroClass:HERO_CLASS_IDS.includes(data.heroClass)?data.heroClass:'vanguard',settings:{sound:false,motion:true,...data.settings}};
     for(const key of ['gold','xp','hp','maxStage','kills','points','lastSave','bosses','crafted'])if(!Number.isFinite(s[key])||s[key]<0)throw Error('Invalid save');
     s.maxStage=Math.max(s.stage,Math.floor(s.maxStage));s.speed=s.speed===2?2:1;s.auto=!!s.auto;s.advance=!!s.advance;s.inventory=s.inventory.slice(0,48);
     s.equipment={...Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null])),...Object.fromEntries(Object.entries(s.equipment).map(([slot,item])=>[canonicalSlot(slot),item]))};
@@ -622,7 +630,7 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
     }
     s.essences=normalizeEssences(data.essences);
 
-    s.cooldowns={cleave:0,mend:0,storm:0};s.effects={chill:0};s.tierKills={...fresh.tierKills,...data.tierKills};s.runNumber=Number.isInteger(data.runNumber)?data.runNumber:0;
+    s.cooldowns=Object.fromEntries(SKILLS.map(skill=>[skill.id,0]));s.effects={chill:0};s.tierKills={...fresh.tierKills,...data.tierKills};s.runNumber=Number.isInteger(data.runNumber)?data.runNumber:0;
     s.orbs={...zeroOrbs(),...Object.fromEntries(Object.entries(data.orbs||{}).filter(([k,v])=>CRAFT_OPERATIONS[k]&&Number.isInteger(v)&&v>=0))};
     delete s.shards;
     s.lootFilter=normalizeLootFilter(data.lootFilter);

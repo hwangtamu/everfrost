@@ -105,7 +105,7 @@ export class Battlefield{
     if(e.type==='hit'){this.floats.push({text:`${e.critical?'✦ ':''}${e.value}`,x,y:y-1.9,life:1,color:e.critical?'#fff0a1':'#f2e6bf'});this.swing=.65;this.hitTimes.set(`${x.toFixed(1)},${y.toFixed(1)}`,this.time);}
     if(e.type==='hurt')this.floats.push({text:`${e.critical?'CRIT ':''}−${e.value}`,x,y:y-2,life:.9,color:e.critical?'#ffd2a3':'#efaa94'});
     if(e.type==='heal')this.floats.push({text:'Restored',x,y:y-2,life:1.5,color:'#a1e0b2'});
-    if(['skill','explosion','enemyAttack'].includes(e.type))this.effects.push({...e,life:e.type==='enemyAttack'?.25:.6,total:.6});
+    if(['skill','explosion','enemyAttack','playerAttack'].includes(e.type))this.effects.push({...e,life:['enemyAttack','playerAttack'].includes(e.type)?.25:.6,total:.6});
   }
 
   draw(timestamp){
@@ -150,7 +150,7 @@ export class Battlefield{
       if(actor.actor==='hero'){
         const px=actor.x*CELL,py=actor.y*CELL;
         c.strokeStyle='#edce87';c.lineWidth=1.3;c.beginPath();c.ellipse(px,py+3,16,8,0,0,Math.PI*2);c.stroke();
-        drawHero(c,px,py,.73,motion?this.time:0,this.swing);
+        drawHero(c,px,py,.73,motion?this.time:0,this.swing,s.heroClass,s.equipment.hand?.weaponType);
         c.font='500 11px system-ui';c.textAlign='center';c.fillStyle='#fcf1d2';c.shadowColor='#11271b';c.shadowBlur=4;c.fillText(s.name,px,py-58);c.shadowBlur=0;
       }else{
         const variant=BOSSES[actor.bossId],color=variant?.color||ENEMY_TIERS[actor.tier].color,px=actor.x*CELL,py=actor.y*CELL,selected=actor.id===s.enemy?.id;
@@ -166,7 +166,7 @@ export class Battlefield{
     }
     this.effects=this.effects.filter(e=>e.life>0);
     for(const e of this.effects){e.life-=dt;c.globalAlpha=Math.max(0,e.life/e.total);
-      if(e.type==='enemyAttack'){c.strokeStyle='#d9b68c';c.lineWidth=2;c.beginPath();c.moveTo(e.x*CELL,e.y*CELL-15);c.lineTo(e.targetX*CELL,e.targetY*CELL-20);c.stroke();}
+      if(e.type==='enemyAttack'||e.type==='playerAttack'){c.strokeStyle=e.type==='playerAttack'?(e.weaponType==='staff'?'#aeb8ff':'#e5ce8d'):'#d9b68c';c.lineWidth=e.weaponType==='staff'?3:2;c.beginPath();c.moveTo(e.x*CELL,e.y*CELL-15);c.lineTo(e.targetX*CELL,e.targetY*CELL-20);c.stroke();}
       else{c.strokeStyle=e.id==='mend'?'#a9e2aa':e.id==='storm'?'#b6d9f5':e.type==='explosion'?'#f49c71':'#ffe0a2';c.lineWidth=3;c.beginPath();c.arc(e.x*CELL,e.y*CELL,(1-e.life/e.total)*CELL*(e.id==='cleave'||e.id==='storm'?skillRange(s,e.id):3),0,Math.PI*2);c.stroke();}
       c.globalAlpha=1;
     }

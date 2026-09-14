@@ -1,4 +1,4 @@
-import {GEAR,GEAR_SLOTS,RING_SLOTS} from './gear.js';
+import {GEAR,GEAR_SLOTS,RING_SLOTS,gearName} from './gear.js';
 // Equipment modifiers modeled on Path of Exile's explicit affixes. Every modifier is
 // either a prefix or a suffix, and either side holds at most three at once. Each affix
 // family defines nine tiers (S / Tier 1 is strongest and gated behind a high item
@@ -179,7 +179,7 @@ export function rollModifierCount(item,count,rng=Math.random){
 }
 export function renameItem(item){
  const unique=UNIQUE_EFFECTS[item.unique],prefix=item.affixes.find(a=>AFFIXES[a.id]?.kind==='prefix'),suffix=item.affixes.find(a=>AFFIXES[a.id]?.kind==='suffix');
- item.name=unique?unique.name+' '+GEAR[item.slot].name:(prefix?AFFIXES[prefix.id].name+' ':'')+GEAR[item.slot].name+(suffix?' '+AFFIXES[suffix.id].name:'');return item;
+ const base=gearName(item);item.name=unique?unique.name+' '+base:(prefix?AFFIXES[prefix.id].name+' ':'')+base+(suffix?' '+AFFIXES[suffix.id].name:'');return item;
 }
 export function uniqueDescription(item){
  const u=UNIQUE_EFFECTS[item?.unique];if(!u)return '';

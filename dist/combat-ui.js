@@ -1,4 +1,5 @@
-import {combatStats,stats} from './engine.js';
+import {combatStats,stats,skillsFor,HERO_CLASSES} from './engine.js';
+import {WEAPON_TYPES,weaponType} from './gear.js';
 import {icon} from './icons.js';
 
 export const number = value => Number(value.toFixed(2)).toLocaleString('en-US',{maximumFractionDigits:2});
@@ -16,7 +17,8 @@ export function combatMetrics(s) {
 }
 
 export function combatPanel(s) {
-  return `<section class="panel secondary-panel combat-attributes"><div class="view-section-title"><h2>Combat attributes</h2><span id="combat-condition" class="combat-condition">${s.effects.chill>0?'Chilled · speed reduced':'Live combat values'}</span></div><dl class="combat-attribute-grid">${combatMetrics(s).map(m=>`<div>${icon(m.icon)}<dt>${m.label}</dt><dd><strong id="combat-value-${m.id}">${m.value}</strong><span id="combat-unit-${m.id}">${m.unit}</span></dd></div>`).join('')}</dl><p class="combat-explanation">Critical strikes multiply physical and elemental hit damage. Attack range needs a clear line of sight. DPS averages basic attacks, including critical strikes and unique equipment effects; travel and skills change your actual damage over time.</p><p class="combat-explanation">Reach bonuses also extend Runic cleave. Thunderstrike has a fixed 6-tile radius. Attack speed affects basic attacks; skills use their own cooldowns.</p></section>`;
+  const archetype=HERO_CLASSES[s.heroClass]||HERO_CLASSES.vanguard,weapon=WEAPON_TYPES[weaponType(s.equipment.hand)],abilities=skillsFor(s);
+  return `<section class="panel secondary-panel combat-attributes"><div class="view-section-title"><h2>Combat attributes</h2><span id="combat-condition" class="combat-condition">${s.effects.chill>0?'Chilled · speed reduced':'Live combat values'}</span></div><dl class="combat-attribute-grid">${combatMetrics(s).map(m=>`<div>${icon(m.icon)}<dt>${m.label}</dt><dd><strong id="combat-value-${m.id}">${m.value}</strong><span id="combat-unit-${m.id}">${m.unit}</span></dd></div>`).join('')}</dl><p class="combat-explanation"><strong>${archetype.name} · ${weapon.label}.</strong> ${weapon.description} Critical strikes multiply physical and elemental hit damage. Attack range needs a clear line of sight. DPS averages basic attacks, including critical strikes and unique equipment effects.</p><p class="combat-explanation">${abilities[0].name} reaches ${typeof abilities[0].range==='number'?abilities[0].range+' tiles':'beyond your weapon range'}. ${abilities[2].name} reaches ${abilities[2].range} tiles. Attack speed affects basic attacks; class abilities use their own cooldowns.</p></section>`;
 }
 
 export function updateCombatPanel(s) {
