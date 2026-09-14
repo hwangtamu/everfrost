@@ -68,11 +68,22 @@ export function reveal(map, position, radius = 7) {
   }
 }
 
+// All Hamiltonian walks on the 3×3 clearing grid; every chosen graph is a path.
+const LINEAR_ROUTES=[];
+function routeWalk(path){
+ if(path.length===9){LINEAR_ROUTES.push(path);return;}
+ const last=path.at(-1),x=last%3,y=Math.floor(last/3);
+ for(const next of [last-1,last+1,last-3,last+3])if(next>=0&&next<9&&!path.includes(next)&&Math.abs(next%3-x)+Math.abs(Math.floor(next/3)-y)===1)routeWalk([...path,next]);
+}
+for(let start=0;start<9;start++)routeWalk([start]);
+export const MAP_THEMES={grove:{name:'Ancient Grove',floor:'#75845b'},ruins:{name:'Broken Causeway',floor:'#8b8a7b'},marsh:{name:'Reedwater Trail',floor:'#657c67'},ridge:{name:'Windworn Ridge',floor:'#9a886d'}};
+
 export function generateMap(seed, stage = 1) {
   seed = seed >>> 0;
   const rng = seededRandom(seed), int = n => Math.floor(rng() * n);
   const width = MAP_WIDTH, height = MAP_HEIGHT, tiles = Array(width * height).fill(0);
   const rooms = [], edges = [];
+  const theme=Object.keys(MAP_THEMES)[int(4)],trailWidth=int(2);
   function carve(x, y, radius = 0) {
     for (let dy = -radius; dy <= radius; dy++) for (let dx = -radius; dx <= radius; dx++) {
       if (x + dx > 0 && x + dx < width - 1 && y + dy > 0 && y + dy < height - 1) tiles[(y + dy) * width + x + dx] = 1;
@@ -82,19 +93,21 @@ export function generateMap(seed, stage = 1) {
   for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) {
     const x = 7 + col * 15 + int(3), y = 5 + row * 11 + int(3);
     const rx = 3 + int(2), ry = 2 + int(2);
-    const room = {id: rooms.length, x: x + .5, y: y + .5, rx, ry, role: 'encounter'};
+    const shape=['oval','cross','terrace','diamond'][int(4)];
+    const room = {id: rooms.length, x: x + .5, y: y + .5, rx, ry, shape, role: 'encounter'};
     rooms.push(room);
     for (let dy = -ry; dy <= ry; dy++) for (let dx = -rx; dx <= rx; dx++) {
-      if (Math.abs(dx) === rx && Math.abs(dy) === ry) continue;
-      carve(x + dx, y + dy);
+      const core=Math.abs(dx)<=1&&Math.abs(dy)<=2;
+      const inShape=shape==='oval'?(dx*dx/(rx*rx)+dy*dy/(ry*ry)<=1.15):shape==='cross'?(Math.abs(dx)<=1||Math.abs(dy)<=1):shape==='diamond'?(Math.abs(dx)/rx+Math.abs(dy)/ry<=1.25):!(Math.abs(dx)===rx&&Math.abs(dy)===ry);
+      if(core||inShape)carve(x+dx,y+dy);
     }
   }
   function connect(a, b) {
     edges.push([a.id, b.id]);
     let x = Math.floor(a.x), y = Math.floor(a.y);
     const endX = Math.floor(b.x), endY = Math.floor(b.y);
-    const horizontal = target => { while (x !== target) { carve(x, y, 1); x += Math.sign(target - x); } carve(x, y, 1); };
-    const vertical = target => { while (y !== target) { carve(x, y, 1); y += Math.sign(target - y); } carve(x, y, 1); };
+    const horizontal = target => { while (x !== target) { carve(x, y, trailWidth); x += Math.sign(target - x); } carve(x, y, trailWidth); };
+    const vertical = target => { while (y !== target) { carve(x, y, trailWidth); y += Math.sign(target - y); } carve(x, y, trailWidth); };
     // Put bends between rooms, so corridors cannot join around a clearing's edge.
     if (Math.abs(endX-x) > Math.abs(endY-y)) {
       horizontal(Math.floor((x+endX)/2)+int(3)-1); vertical(endY); horizontal(endX);
@@ -102,16 +115,10 @@ export function generateMap(seed, stage = 1) {
       vertical(Math.floor((y+endY)/2)); horizontal(endX); vertical(endY);
     }
   }
-  // One serpentine route, randomly reflected, visits every clearing exactly once.
-  // Geometry and encounters vary by seed; the room graph is always a simple path.
-  const flipX = rng() < .5, flipY = rng() < .5;
-  const route = [6,7,8,5,4,3,0,1,2].map(id => {
-    const col = id % 3, row = Math.floor(id / 3);
-    return (flipY ? 2-row : row)*3 + (flipX ? 2-col : col);
-  });
+  const route=[...LINEAR_ROUTES[int(LINEAR_ROUTES.length)]];
   route.forEach((id, order) => { rooms[id].order = order; });
   for (let i = 1; i < route.length; i++) connect(rooms[route[i-1]], rooms[route[i]]);
-  const map = {seed, stage, topology:'linear', route, width, height, tiles, rooms, edges, seen: Array(width * height).fill(0), progress: 0, goal: 0, completed: false, bossUnlocked: false};
+  const map = {seed, stage, theme, trailWidth, topology:'linear', route, width, height, tiles, rooms, edges, seen: Array(width * height).fill(0), progress: 0, goal: 0, completed: false, bossUnlocked: false};
   const entrance = rooms[route[0]], boss = rooms[route.at(-1)];
   entrance.role = 'entrance'; map.entrance = {x:entrance.x, y:entrance.y};
   boss.role = 'boss'; map.bossRoomId = boss.id;
@@ -120,8 +127,7 @@ export function generateMap(seed, stage = 1) {
   map.shrine = {x: shrineRoom.x, y: shrineRoom.y, used: false};
   map.chest = {x: shrineRoom.x + 2, y: shrineRoom.y, opened: false};
   const adjectives = ['Whispering', 'Forgotten', 'Twisting', 'Shrouded', 'Wandering', 'Ancient'];
-  const nouns = ['Crossing', 'Wilds', 'Passage', 'Hollow', 'Sanctum', 'Trail'];
-  map.name = `${adjectives[int(adjectives.length)]} ${nouns[int(nouns.length)]}`;
+  map.name = `${adjectives[int(adjectives.length)]} ${MAP_THEMES[theme].name}`;
   reveal(map, map.entrance);
   return map;
 }

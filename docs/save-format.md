@@ -1,6 +1,6 @@
 # Save format & persistence
 
-Storage: **localStorage**, key `everfrost.save.v1` (kept even at v4 so old
+Storage: **localStorage**, key `everfrost.save.v1` (kept even at v5 so old
 heroes migrate in place). Saves are origin-scoped; local and hosted URLs have
 separate saves. Clearing browser data removes progress.
 
@@ -8,7 +8,7 @@ separate saves. Clearing browser data removes progress.
 
 ```js
 {
-  version: 4,
+  version: 5,
   name: 'Wanderer',            // ≤20 chars
   level: 1, xp: 0,             // xp vs xpRequired(level)
   gold: 120, orbs: {transmute:0, augment:0, regal:0, alchemy:0, chaos:0, exalt:0, scour:0, divine:0}, // orbs only drop from kills
@@ -18,7 +18,8 @@ separate saves. Clearing browser data removes progress.
   hp: 105,                     // current (clamped to current maxHp at load)
   auto: true, advance: true, speed: 1|2,
   inventory: [item...],        // ≤48
-  equipment: {head, neck, shoulder, chest, wrist, hand, belt, leg, foot},  // item | null
+  equipment: {head, neck, shoulder, chest, wrist, hand, belt, leg, foot, leftRing, rightRing},  // item | null
+  essences: [{id, affix:{id, tier, value, min, max}, count}],  // recovered modifiers; identical ones stack
   talents: {might, guard, vigor, fortune},
   points: 0,
   cooldowns: {cleave, mend, storm},   // never persisted live; always reset to 0
@@ -42,15 +43,23 @@ separate saves. Clearing browser data removes progress.
 {
   id,               // crypto.randomUUID()
   slot: 'head'|'neck'|'shoulder'|'chest'|'wrist'|'hand'|'belt'|'leg'|'foot'|'leftRing'|'rightRing',
-  rarity: 0-3,      // Normal/Magic/Rare/Unique
   name,             // e.g. "Forceful Iron Longsword of Haste"
-  itemLevel,        // stage of the drop / highest merged contributor
+  itemLevel,        // stage of the drop
   implicits,        // per-stat base rolls; +10% of base per upgrade
   upgrade: 0..,     // forge level
   affixes: [{id, tier, value, min, max}],  // tier 1 = strongest; min/max from the tier
-  unique: <key of UNIQUE_EFFECTS in loot.js>|null  // e.g. 'echo', 'soulgorge'
+  unique: <key of UNIQUE_EFFECTS in loot.js>|null,  // e.g. 'echo', 'soulgorge'
+  uniqueRoll: 0.9–1.1,   // only for unique powers with variable stats
+  locked: true|false,    // salvage protection
+  modifierVersion: 2
 }
 ```
+
+Items no longer store a rarity tier: the roll-time tier only decides how many
+explicit modifiers the item gets, and the visible **grade** is derived from the
+strongest affix tier (D → C → B → A → AA → AAA → AAAA → AAAAA → S). Unique
+powers are permanent implicits that cannot be removed; `uniqueRoll` (90–110%)
+is only changeable with a Divine Orb.
 
 Ring slots are added as `null` when loading older saves. A ring's `slot` becomes the selected finger when equipped; its identity, implicits, affixes, and upgrade rank are preserved. Older filters that selected every previous slot expand to include rings, while restricted filters retain their choices. No save-version reset is required.
 
@@ -72,15 +81,16 @@ are restored, not trusted.
 path** on any violation, which yields a fresh `createGame()` with
 `recovered: true`:
 
-1. `version ∈ {1, 2}`; integer level ≥1; stage ≥1; arrays/talents exist.
+1. `version ∈ {1, 2, 3, 4, 5}`; integer level ≥1; stage ≥1; arrays/talents exist.
 2. Every inventory & equipment item passes `validItem` (id/name strings, valid
-   slot, rarity 0–3, finite power ≥0, integer upgrade ≥0).
+   slot, finite power ≥0, integer upgrade ≥0).
 3. `name` is non-empty, `log[]` entries have text + finite time, `claimed`
    is an array, talents are non-negative integers.
 4. All numeric resources (`gold, xp, hp, maxStage, kills, points,
    lastSave, bosses, crafted`) are finite and ≥0; each `orbs[id]` is a
    non-negative integer.
-5. Then normalization runs (see below) and the map is restored.
+5. `essences` are re-normalized (dedupe stacks by exact id, drop corrupt
+   entries, cap stack count at 512) and the map is restored.
 
 ### Map restore validation (`restoreMap`)
 
@@ -108,9 +118,12 @@ Runs over every item (inventory + equipped):
 - **Affixes**: filters to known ids with finite non-negative values, dedupes
   by id, and for legacy rolls (no `min`/`max` stored) finds the tier whose
   range contains the value (nearest if none), clamps the value into it, and
-  stamps `tier/min/max`. New-format rolls keep their tier (clamped 1..5).
+  stamps `tier/min/max`. New-format rolls keep their tier (clamped 1..9).
 - `itemLevel` defaults to 1 when missing.
-- Unknown unique effects are stripped.
+- The roll-time `rarity` is deleted from items; unknown unique effects are
+  stripped, and variable unique powers receive a clamped `uniqueRoll`.
+- Essences carry one modifier each; identical stacks merge by exact
+  `id` (affix id + tier + value), and malformed entries are dropped.
 
 Version-1 saves (branching-era) have no map/enemies/affixes; `migrated: true`
 and the character + gear are carried forward with a fresh linear expedition.
@@ -160,7 +173,7 @@ Optional Google sign-in adds a second persistence layer (`dist/cloud-saves.js`,
   anti-cheat.
 ## Combat and loot additions
 
-Combat attributes are derived from equipment, talents, and temporary effects, not independently persisted totals. New `lootFilter` settings default to all rarities and slots, minimum item level 1, no required affixes, and unique override on; drops that don't match the filter are always converted to gold on pickup. `groundLoot` stores `{ id, item, x, y, age }` for each pending drop. Load validation discards malformed or duplicate pending records and preserves valid items; map changes and offline collection settle pending rewards once. Saves lacking these fields receive their defaults without resetting the character or map.
+Combat attributes are derived from equipment, talents, and temporary effects, not independently persisted totals. New `lootFilter` settings default to all grades and slots, minimum item level 1, no required affixes, and unique override on; drops that don't match the filter are always converted to gold on pickup. `groundLoot` stores `{ id, item, x, y, age }` for each pending drop. Load validation discards malformed or duplicate pending records and preserves valid items; map changes and offline collection settle pending rewards once. Saves lacking these fields receive their defaults without resetting the character or map.
 
 Version 3 migrates old weapon/armor/charm items into hand/chest/neck gear, preserving IDs, item levels, upgrades, and explicit modifiers. Legacy base stats receive deterministic middle rolls at their existing item level; saved v3 rolls survive reloads unchanged. Ground drops migrate too. Old filter categories expand to the corresponding new slots.
 
@@ -169,3 +182,5 @@ Version 3 migrates old weapon/armor/charm items into hand/chest/neck gear, prese
 Existing v1–v3 saves migrate to location expedition with an empty keystone pouch. Fields: location, returnPortal (ordinary expedition availability), keystones, riftPortal (committed keystone or null), rift ({keystone, wave, status}), expedition (suspended normal world while inside a rift), lastRift. Keystone shape: {id, kind:'keystone', name, rarity, itemLevel, modifiers:[{id,roll}]}. Rolls are 0–1 and modifier families cannot repeat.
 
 The suspended world includes stage, map, monsters, position, health, cooldowns, combat timers, hazards, ground drops, and auto setting, but does not roll back gold, experience, equipment, or other permanent rewards. Arena validation checks the fixed collision map, wave bounds and boss state. Corrupt rifts close with no renewed entry while restoring the normal expedition when valid. Pouch, portal and ground-drop IDs are deduplicated during load.
+
+Gear may include `locked: true` to prevent salvage consumption. Old items with no flag are unlocked. New linear maps also store `theme`, `trailWidth` and each room’s `shape`. Boss enemies store `bossId`, `abilityIndex` and `abilityTimer`; valid identities survive load, and timers reset to four seconds with pending hazards cleared. Older saved maps and bosses remain playable until the next expedition.

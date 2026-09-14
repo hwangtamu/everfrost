@@ -99,7 +99,7 @@ test('weighted kills unlock the boss, and only boss defeat unlocks the next stag
   const count=s.inventory.length;defeatEnemy(s,boss,events,fixed);
   assert(s.map.completed);assert.equal(s.maxStage,2);assert.equal(s.bosses,1);
   assert.equal(s.groundLoot.length,2);for(const d of [...s.groundLoot])collectLoot(s,d.id);
-  assert.equal(s.inventory.length,count+2);assert(s.inventory.slice(0,2).every(i=>i.rarity>=2));
+  assert.equal(s.inventory.length,count+2);assert(s.inventory.slice(0,2).every(i=>i.affixes.length>=4));
   assert(events.some(e=>e.type==='complete'));
 });
 
@@ -198,9 +198,9 @@ test('map reroll keeps permanent progression but resets the expedition',()=>{
 test('enemy and loot dossiers describe the current rules and escape names',()=>{
   const s=createGame(1000,42);s.enemy=s.enemies.find(e=>e.tier==='rare');s.enemy.name='<script>bad</script>';
   assert(enemyDetails(s).includes('&lt;script&gt;'));assert(!enemyDetails(s).includes('<script>'));
-  assert(enemyDetails(s).includes('Guaranteed magic-or-better loot'));
+  assert(enemyDetails(s).includes('Guaranteed modified equipment'));
   assert(expeditionOverview(s).includes('one winding trail'));
-  const item=makeItem('hand',3,1,fixed);
+  const item=makeItem('hand',3,1,()=>.09); // force the first hand unique: a fixed mechanic power
   assert(itemAffixDetails(item,s).includes(UNIQUE_EFFECTS[item.unique].description));
   assert(itemAffixDetails(item,s).includes('If equipped'));
 });

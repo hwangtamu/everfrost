@@ -117,7 +117,7 @@ test('rift modifiers change combat and actual loot levels, quantities and rarity
  assert(enemyStats(unique,unique.enemies[0]).crit>enemyStats(normal,normal.enemies[0]).crit);
  assert(effectiveDamage(unique,unique.enemies[0],100)<effectiveDamage(normal,normal.enemies[0],100));
  const finish=(s)=>{for(let wave=1;wave<=4;wave++)for(const e of [...s.enemies])defeatEnemy(s,e,[],()=>.2);s.groundLoot=[];defeatEnemy(s,s.enemies[0],[],()=>.2);return s.groundLoot.filter(d=>d.item.kind!=='keystone').map(d=>d.item);};
- const a=finish(normal),z=finish(unique);assert(z.length>a.length);assert(z.every(i=>i.itemLevel===1+b.itemLevel));assert(z[0].rarity>=a[0].rarity);
+ const a=finish(normal),z=finish(unique);assert(z.length>a.length);assert(z.every(i=>i.itemLevel===1+b.itemLevel));assert(z.every(i=>i.affixes.length>=4));
 });
 
 test('automatic arena combat can finish all waves without teleport or terrain escapes',()=>{

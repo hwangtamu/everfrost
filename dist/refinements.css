@@ -1,0 +1,64 @@
+/* Character and backpack share a restrained, metal-framed inventory surface. */
+.possessions-layout{display:grid;grid-template-columns:minmax(360px,.9fr) minmax(400px,1.1fr);gap:22px;align-items:start}
+.possessions-layout>.secondary-panel{margin:0;min-width:0;padding:22px}
+.paperdoll-panel,.bag-panel{background:linear-gradient(150deg,#242c29,#141d1c 75%);border-color:#6d634544;box-shadow:inset 0 1px #b9a36e18}
+.possessions-layout .view-section-title{margin-bottom:17px;gap:8px;align-items:center}
+.possessions-layout h2{font-size:25px;margin-top:7px}
+.possessions-layout .capacity{font-size:12px;white-space:nowrap;color:#c4b991}
+.paperdoll{display:grid;grid-template-columns:70px minmax(100px,1fr) 70px;gap:12px;position:relative;min-height:430px;padding:18px 0 0;border-top:1px solid #aa98672b}
+.paper-column{display:flex;flex-direction:column;gap:15px;z-index:1}
+.paper-slot{position:relative;display:flex;align-items:center;gap:9px;padding:0;min-width:0;text-align:left;color:var(--item-color,#bac3b1)}
+.paper-icon{width:58px;height:58px;border:1px solid currentColor;box-shadow:inset 0 0 0 3px #0d1416,inset 0 0 18px #b7bca312,0 2px 5px #0006;background:radial-gradient(at 50% 30%,#405050,#182220 75%);display:grid;place-items:center;position:relative;flex-shrink:0;border-radius:4px}
+.paper-icon>.icon{width:31px;height:31px;stroke-width:1.35}
+.paper-slot:hover .paper-icon{background:#485448;box-shadow:0 0 10px #d7c78433,inset 0 0 0 2px #101817}
+.paper-slot.is-empty{color:#6d7c71}.paper-slot.is-empty .paper-icon{border-style:dashed;background:#111b1b}
+.paper-copy{min-width:0}.paper-copy small{font-size:10px;color:#a8b1a2;white-space:nowrap}.paper-copy strong,.paper-copy em{display:none}
+.paper-column .paper-slot{flex-direction:column;gap:4px;align-items:center}
+.paper-portrait{position:relative;min-width:0;align-self:center;display:flex;align-items:center;flex-direction:column;text-align:center;gap:10px;padding:0 0 30px}
+.paper-portrait canvas{width:min(100%,240px);height:auto;position:relative;z-index:1;filter:drop-shadow(0 12px 12px #0008)}
+.paper-sigil{position:absolute;top:30px;left:0;right:0;color:#b5b18322;font:200px/1.5 Georgia;pointer-events:none;border:1px solid #aa987018;border-radius:50%;aspect-ratio:1;background:radial-gradient(#85927118,transparent 65%)}
+.paper-portrait>strong{font:22px var(--serif);color:#e1d5b3;overflow-wrap:anywhere}
+.paper-portrait>small{font-size:9px;letter-spacing:1.1px;color:#aab3a3}
+.paper-portrait>span{font-size:11px;color:#9eac9d}.paper-portrait b{font-weight:500;color:#d4c599}
+.paper-rings{grid-column:1/-1;display:flex;gap:28px;justify-content:center;padding:4px 0 15px}
+.paper-rings .paper-slot{flex-direction:column;gap:5px;text-align:center}
+.equipped-lock{position:absolute;right:0;bottom:0;background:#1d261fee;border-radius:3px;padding:2px;line-height:1}.equipped-lock .icon{width:12px;height:12px;color:#e5c989}
+.bag-capacity{height:3px;background:#080e0e;margin-bottom:20px;border-radius:4px;overflow:hidden}.bag-capacity i{display:block;height:100%;background:#ba9c60}
+.bag-toolbar{display:flex;gap:14px;margin-bottom:17px}.bag-toolbar label{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0;font-size:11px;color:#aeb7a6}
+.bag-toolbar select{width:100%;min-height:42px;min-width:0;border:1px solid #58634d;color:#dedfca;background:#121c1b;padding:7px 9px;border-radius:4px;color-scheme:dark;font-size:14px}
+.bag-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:12px;background:#0c1415;border:1px solid #63705a44;border-radius:5px;box-shadow:inset 0 2px 10px #0005}
+.bag-cell{position:relative;aspect-ratio:1;min-width:0;border:1px solid var(--item-color,#39433e);border-radius:4px;box-shadow:inset 0 0 0 2px #0c1314;background:radial-gradient(at 50% 25%,#3c4947,#182222 75%);color:var(--item-color,#a5b0a0)}
+.bag-inspect{position:absolute;inset:0;width:100%;height:100%;padding:5px;display:flex;align-items:center;justify-content:center;border-radius:3px}
+.bag-inspect:hover{background:#d3c18018}.bag-item-icon .icon{width:30px;height:30px;stroke-width:1.4;filter:drop-shadow(0 2px 2px #0008)}
+.bag-level{position:absolute;left:4px;top:3px;font:10px var(--sans);color:#e0dac5;text-shadow:0 1px 3px #000}
+.bag-upgrade{position:absolute;bottom:3px;left:4px;font-size:10px;color:#e2c68e}.bag-item-name{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.bag-lock{position:absolute;bottom:0;right:0;width:32px;height:32px;display:grid;place-items:center;color:#84968a;border-radius:4px;background:linear-gradient(135deg,transparent,#0d171de6)}
+.bag-lock .icon{width:13px;height:13px}.bag-lock:hover{color:#f2d493;background:#2b3a35}.item-locked .bag-lock{color:#e7c77e}.item-locked{box-shadow:inset 0 0 0 2px #c1a66a44}
+.bag-empty-cell{background:linear-gradient(145deg,#111c1c,#0b1214);border-color:#33413970;display:grid;place-items:center;color:#475347;box-shadow:inset 0 2px 4px #0004}
+.bag-footer{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.bag-footer .button{font-size:12px;min-height:44px;padding:9px 11px}
+.bag-empty{font-size:13px;color:#aebcaa;margin:0 0 15px}
+.possessions-layout .inventory-note{font-size:12px;line-height:1.7;color:#a0ae9c;margin:18px 0 0;display:block}.inventory-note>.icon{width:14px;height:14px;margin-right:4px}
+.rarity-0{--item-color:#a8b5a7}.rarity-1{--item-color:#7db5eb}.rarity-2{--item-color:#dac06d}.rarity-3{--item-color:#d69a67}
+/* Only two unit frames occupy the combat canvas. */
+.battlefield .field-top,.battlefield .field-bottom,.battlefield .battle-overlay{display:none!important}
+.duel-hud{position:absolute;z-index:4;top:14px;left:14px;right:14px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;pointer-events:none;align-items:start}
+.duel-hud .field-health,.duel-hud .enemy-card{position:static;display:block;width:auto;max-width:none;margin:0;padding:9px 10px 5px;border:1px solid #b5bea738;border-radius:5px;background:#101d1beb;backdrop-filter:blur(3px);min-width:0;pointer-events:none}
+.duel-hud .field-health{border-color:#a3bd8055}.duel-hud .enemy-card{border-color:color-mix(in srgb,var(--enemy-color) 45%,transparent)}
+.duel-hud .enemy-tier-line{display:none!important}
+.duel-hud .field-health>div:first-child,.duel-hud .enemy-card>div:nth-child(2){display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px;margin:0 0 7px;min-width:0}
+#hud-player-name,#enemy-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;color:#e0e7d1;font-size:12px;font-weight:500}
+.duel-hud #field-hp-text,.duel-hud #enemy-level{font-size:10px;white-space:nowrap;color:#bfc9b3}
+.duel-hud .meter{height:13px;border:1px solid #0006;border-radius:2px;background:#090f10;position:relative;box-shadow:inset 0 1px 4px #0008}
+.duel-hud .meter>i{border-radius:1px}.duel-hud #enemy-hp-text{position:absolute;inset:0;display:grid;place-items:center;font:9px var(--sans);line-height:11px;color:#fff8df;text-shadow:0 1px 2px #000}
+.duel-hud .combat-statuses,.duel-hud .enemy-mods{position:static;display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 0;padding:0;min-height:0;pointer-events:auto;justify-content:flex-start;width:auto}
+.duel-hud .hud-mod{display:grid;place-items:center;width:28px;height:28px;min-height:28px;min-width:28px;padding:3px;border:1px solid #73865e66;border-radius:3px;color:#c3d6b1;background:linear-gradient(135deg,#3e4a33,#1b2a24);font-size:10px;cursor:pointer;pointer-events:auto}
+.hud-mod .icon{width:16px;height:16px}.duel-hud .hud-mod:hover{border-color:#e7d2a1}.duel-hud .hud-aura{border-color:#a98dcc;color:#d2baf0;background:#332a43}.duel-hud .hud-skill{border-color:#c9966b;color:#f3c898;background:#3a2d25}.duel-hud .hud-debuff{border-color:#8eb7d7;color:#bfdeff;background:#263b4e}.duel-hud .hud-unique{color:#dfb582;border-color:#b48957}
+.expedition-meta .minimap-control{position:static;display:flex;width:auto;margin:0;min-height:38px;padding:5px 10px;flex-shrink:0;border:1px solid #68735a55;background:#1b2a23;border-radius:4px}
+.expedition-meta .minimap-control canvas{display:none}.expedition-meta .minimap-control>span{font-size:12px;display:flex;gap:6px;padding:0;align-items:center}
+.expedition-meta{flex-wrap:wrap;gap:10px}.expedition-meta>div{margin-right:auto}.expedition-meta .text-button{font-size:12px}
+.action-status{position:static;font-size:13px;color:#c4d5b8;background:#233429;border-left:2px solid #a6b97d;padding:10px 14px;margin:0 0 18px;border-radius:3px}
+@media(min-width:1500px){.bag-grid{grid-template-columns:repeat(8,minmax(0,1fr))}.paperdoll{grid-template-columns:80px 1fr 80px}}
+@media(max-width:1150px){.possessions-layout{grid-template-columns:1fr}.paperdoll{grid-template-columns:minmax(100px,1fr) minmax(160px,240px) minmax(100px,1fr)}.paper-column .paper-slot{flex-direction:row;align-items:center}.paper-right .paper-slot{flex-direction:row-reverse;text-align:right}.paper-copy strong{display:block;font-size:11px;line-height:1.4;margin-top:5px}.paper-copy em{display:block;font-size:10px;color:#9caa91;font-style:normal;margin-top:3px}.paper-column{gap:14px}.bag-grid{grid-template-columns:repeat(8,minmax(0,1fr))}}
+@media(max-width:680px){.possessions-layout>.secondary-panel{padding:16px}.paperdoll{grid-template-columns:66px minmax(100px,1fr) 66px;gap:9px;min-height:0}.paper-column .paper-slot{flex-direction:column;text-align:center;gap:4px}.paper-copy strong,.paper-copy em{display:none}.paper-icon{width:54px;height:54px}.paper-portrait>strong{font-size:19px}.paper-portrait>small{font-size:8px}.paper-portrait>span{font-size:10px}.paper-sigil{font-size:150px}.bag-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;padding:9px}.bag-item-icon .icon{width:27px;height:27px}.bag-footer .button{flex:1}.duel-hud{left:8px;right:8px;top:10px;gap:10px}.duel-hud .field-health,.duel-hud .enemy-card{padding:7px 7px 4px}.duel-hud #field-hp-text{font-size:9px}.duel-hud .hud-mod{width:26px;height:28px;min-width:26px}.duel-hud .enemy-mods,.duel-hud .combat-statuses{gap:3px}.expedition-meta>div{flex-basis:100%}}
+@media(max-width:420px){.bag-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.bag-item-icon .icon{width:32px;height:32px}.paper-sigil{font-size:115px}.paper-portrait{gap:7px;padding-bottom:15px}.duel-hud #enemy-level{font-size:9px}.duel-hud #hud-player-name,.duel-hud #enemy-name{font-size:11px}.duel-hud .field-health>div:first-child{flex-wrap:wrap;gap:2px}.duel-hud #field-hp-text{margin-left:auto}}
+@media(prefers-reduced-motion:reduce){.duel-hud .meter>i{transition:none}}

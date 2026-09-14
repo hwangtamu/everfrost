@@ -1,4 +1,4 @@
-import {ITEM_RARITIES} from './loot.js';
+import {KEYSTONE_RARITIES} from './loot.js';
 
 export const RIFT_WAVES=5;
 export const RIFT_MODIFIERS={
@@ -20,7 +20,7 @@ export function makeKeystone(rarity=0,itemLevel=1,rng=Math.random){
   const count=rarity===0?0:rarity===1?1+Math.floor(rng()*2):rarity===2?3+Math.floor(rng()*2):6;
   const pool=Object.keys(RIFT_MODIFIERS),modifiers=[];
   for(let i=0;i<count;i++)modifiers.push({id:pool.splice(Math.floor(rng()*pool.length),1)[0],roll:Math.round(rng()*100)/100});
-  return {id:globalThis.crypto.randomUUID(),kind:'keystone',name:`${ITEM_RARITIES[rarity]} Rift Keystone`,rarity,itemLevel:Math.max(1,Math.floor(itemLevel)),modifiers};
+  return {id:globalThis.crypto.randomUUID(),kind:'keystone',name:`${KEYSTONE_RARITIES[rarity]} Rift Keystone`,rarity,itemLevel:Math.max(1,Math.floor(itemLevel)),modifiers};
 }
 export function validKeystone(k){
   return !!k&&k.kind==='keystone'&&typeof k.id==='string'&&typeof k.name==='string'&&Number.isSafeInteger(k.itemLevel)&&k.itemLevel>0&&Number.isInteger(k.rarity)&&k.rarity>=0&&k.rarity<=3&&Array.isArray(k.modifiers)&&

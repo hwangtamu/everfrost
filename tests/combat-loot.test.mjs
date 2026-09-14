@@ -78,12 +78,13 @@ test('offline rewards respond to movement speed and critical damage',()=>{
   assert(offlineRewards(fast,3601000).gold>ordinary.gold);assert(offlineRewards(crit,3601000).gold>ordinary.gold);
 });
 
-test('loot filter combines rarity, slot, level, and any selected modifier with an optional unique override',()=>{
-  const filter=normalizeLootFilter({minRarity:2,slots:['hand'],minItemLevel:10,affixes:['reach','haste']});
-  const item=makeItem('hand',2,10,fixed);item.affixes=[{id:'reach',value:.5}];
+test('loot filter combines grade, slot, level, and any selected modifier with an optional unique override',()=>{
+  const filter=normalizeLootFilter({minGrade:2,slots:['hand'],minItemLevel:10,affixes:['reach','haste']});
+  const item=makeItem('hand',2,10,fixed);item.affixes=[{id:'reach',tier:5,value:1,min:.8,max:1.3}]; // grade A
   assert(matchesLootFilter(item,filter));
-  assert(!matchesLootFilter({...item,rarity:1},filter));assert(!matchesLootFilter({...item,slot:'chest'},filter));
-  assert(!matchesLootFilter({...item,itemLevel:9},filter));assert(!matchesLootFilter({...item,affixes:[]},filter));
+  assert(!matchesLootFilter({...item,slot:'chest'},filter));
+  assert(!matchesLootFilter({...item,itemLevel:9},filter));
+  assert(!matchesLootFilter({...item,affixes:[]},filter));
   const unique=makeItem('neck',3,1,fixed);assert(matchesLootFilter(unique,filter));
   assert(!matchesLootFilter(unique,{...filter,alwaysShowUnique:false}));
   assert.deepEqual(normalizeLootFilter({slots:['hand','hand','bad'],affixes:['bad']} ).slots,['hand']);
@@ -91,13 +92,14 @@ test('loot filter combines rarity, slot, level, and any selected modifier with a
 
 test('drops stay on the ground before pickup; hidden drops convert to gold, visible ones are kept',()=>{
   const s=scene(),item=makeItem('hand',0),count=s.inventory.length,gold=s.gold;
-  s.lootFilter=normalizeLootFilter({minRarity:2});dropItem(s,item,s.player);
+  s.lootFilter=normalizeLootFilter({minGrade:1});dropItem(s,item,s.player);
   assert.equal(s.groundLoot.length,1);assert.equal(s.inventory.length,count);
   advance(s,1);assert.equal(s.groundLoot.length,1);
   advance(s,1.5);assert.equal(s.groundLoot.length,0);
   assert.equal(s.inventory.length,count);assert.equal(s.gold,gold+salvageGold(item)); // below filter -> gold
   assert(!collectLoot(s,item.id));
-  const rare=makeItem('hand',2),before=s.inventory.length;
+  const rare=makeItem('hand',2,10,fixed);rare.affixes=[{id:'might',tier:5,value:3,min:2,max:4}];
+  const before=s.inventory.length;
   dropItem(s,rare,s.player);assert(collectLoot(s,rare.id));assert.equal(s.inventory.length,before+1);
   const unique=makeItem('neck',3,1,fixed);dropItem(s,unique,s.player);collectLoot(s,unique.id);
   assert(s.inventory.some(i=>i.id===unique.id));

@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import {GEAR,GEAR_SLOTS,implicitStats,implicitMarkup} from '../dist/gear.js';
 import {createGame,makeItem,stats,equip,saveGame,loadGame,SAVE_KEY,dropItem,collectLoot} from '../dist/engine.js';
 import {seededRandom} from '../dist/world.js';
-import {craft,benchCraft} from '../dist/crafting.js';
+import {craft} from '../dist/crafting.js';
 import {normalizeLootFilter,matchesLootFilter} from '../dist/loot-filter.js';
 import {lootFilterPanel} from '../dist/loot-filter-ui.js';
-import {salvage,salvageGold,merge} from '../dist/engine.js';
-import {AFFIXES,UNIQUE_EFFECTS,uniquesForSlot,uniqueBonuses} from '../dist/loot.js';
-import {equippedPanel,inventoryPanel,inventoryCard,inventoryItems,salvageCandidates} from '../dist/inventory-ui.js';
+import {salvage,salvageGold} from '../dist/engine.js';
+import {AFFIXES,UNIQUE_EFFECTS,uniquesForSlot,uniqueBonuses,itemGrade} from '../dist/loot.js';
+import {equippedPanel,inventoryPanel,inventoryCard,inventoryItems,salvageCandidates,equipButtons} from '../dist/inventory-ui.js';
 
 test('44 unique items double each slot pool and all remain obtainable and saveable',()=>{
  const definitions=Object.values(UNIQUE_EFFECTS),items=new Map();
@@ -39,21 +39,28 @@ test('44 unique items double each slot pool and all remain obtainable and saveab
  assert(!loaded.recovered);assert.deepEqual(loaded.state.inventory,s.inventory);
 });
 
-test('inventory cleanup respects filters and protects valuable or upgraded gear',()=>{
+test('inventory cleanup respects grades and protects unique, upgraded and locked gear',()=>{
  const s=createGame();s.inventory=[];
- for(const slot of ['hand','leftRing','rightRing'])for(let rarity=0;rarity<4;rarity++)s.inventory.push(makeItem(slot,rarity,10,()=>.5));
- const upgraded=makeItem('leftRing',1,20,()=>.5);upgraded.upgrade=1;s.inventory.push(upgraded);
+ const ring=(slot,grade)=>{const item=makeItem(slot,1,10,()=>.5);item.affixes=[{id:'might',tier:9-grade,value:3,min:2,max:4}];return item;};
+ const junk=[ring('leftRing',0),ring('rightRing',0)];
+ const good=[ring('leftRing',4),ring('rightRing',4)];
+ const unique=makeItem('leftRing',3,10,()=>.5);
+ const upgraded=makeItem('rightRing',1,20,()=>.5);upgraded.upgrade=1;
+ s.inventory.push(...junk,...good,unique,upgraded);
  const before=structuredClone(s.inventory),gold=s.gold,candidates=salvageCandidates(s,'rings');
- assert.equal(candidates.length,4);assert(candidates.every(i=>i.slot.endsWith('Ring')&&i.rarity<2&&!i.upgrade));
- assert.equal(inventoryItems(s,'rings').length,9);
+ assert.deepEqual(candidates.map(i=>i.id).sort(),junk.map(i=>i.id).sort());
+ assert(candidates.every(i=>i.slot.endsWith('Ring')&&itemGrade(i)<2&&!i.unique&&!i.upgrade));
+ assert.equal(inventoryItems(s,'rings').length,6);
+ assert.equal(itemGrade(inventoryItems(s,'all','grade')[0]),4);
+ assert.equal(itemGrade(inventoryItems(s,'all','grade').slice(-1)[0]),0);
  assert.equal(inventoryItems(s,'all','level')[0].id,upgraded.id);
- assert.equal(inventoryItems(s,'all','rarity')[0].rarity,3);
  assert.deepEqual(s.inventory,before);
  const ids=candidates.map(i=>i.id),value=candidates.reduce((n,i)=>n+salvageGold(i),0);
  const late=makeItem('leftRing',0,10,()=>.5);s.inventory.push(late);
  for(const id of ids)assert(salvage(s,id));
  assert(s.inventory.includes(late));assert(s.inventory.includes(upgraded));
- assert.equal(s.gold,gold+value);assert.equal(s.inventory.filter(i=>i.rarity>=2).length,6);
+ assert(s.inventory.includes(unique));assert(s.inventory.includes(good[0]));assert(s.inventory.includes(good[1]));
+ assert.equal(s.gold,gold+value);assert.equal(salvageCandidates(s,'rings').length,1);
  assert(salvageCandidates(s,'head').length===0);
 });
 
@@ -63,10 +70,11 @@ test('equipment and inventory panels expose accessible inspection and cleanup co
  assert.equal((equipment.match(/data-action="equipment"/g)||[]).length,11);
  assert(equipment.includes('Left ring'));assert(equipment.includes('Right ring'));
  assert(!equipment.includes('data-salvage='));assert(!card.includes('<script>'));
- assert(card.includes('&lt;script&gt;'));assert(card.includes('data-equip-slot="leftRing"'));assert(card.includes('data-equip-slot="rightRing"'));
- assert(card.includes('data-salvage="'+ring.id+'"'));assert(card.includes('aria-label="Inspect'));
+ assert(card.includes('&lt;script&gt;'));assert(equipButtons(ring).includes('data-equip-slot="leftRing"'));assert(equipButtons(ring).includes('data-equip-slot="rightRing"'));
+ assert(card.includes('data-lock-item="'+ring.id+'"'));assert(card.includes('aria-label="Inspect'));
+ assert(equipment.includes('id="loadout-portrait"'));assert(panel.includes('class="bag-grid"'));
  assert(panel.includes('value="level" selected'));assert(panel.includes('data-action="salvage-junk"'));
- assert(panel.includes('Salvage normal/magic (1)'));
+ assert(panel.includes('Salvage D/C (1)'));
  assert(inventoryPanel(s,'head').includes('No matching gear.'));
  s.inventory=[];assert(inventoryPanel(s).includes('Your satchel is empty.'));
 });
@@ -82,11 +90,9 @@ test('rings fit either finger, contribute stats, craft and survive a save',()=>{
  const other=makeItem('leftRing',1,10,()=>.5);s.inventory.push(other);
  assert(!equip(s,other.id,'head'));assert(s.inventory.includes(other));
  assert(equip(s,other.id,'rightRing'));assert(s.inventory.includes(left));
- assert(benchCraft(s,left,'might',5,()=>.5).ok===false);
  s.orbs.alchemy=1;assert(craft(s,left,'alchemy',()=>.5).ok);
  assert(left.affixes.every(a=>AFFIXES[a.id].slots.includes(left.slot)));
- s.inventory.push(...Array.from({length:3},()=>makeItem('leftRing',2,10,()=>.5)));
- assert(merge(s,'leftRing',2).unique);
+ assert(left.affixes.length>=3&&left.affixes.length<=6);
  const data=new Map(),storage={getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v)};
  saveGame(s,storage,1000);const loaded=loadGame(storage,1000);
  assert(!loaded.recovered);assert.deepEqual(loaded.state.equipment,s.equipment);
@@ -150,13 +156,19 @@ test('each equipment slot contributes every implicit to live combat and swaps co
 
 test('explicit crafting leaves the rolled base and upgrade rank unchanged',()=>{
  const s=createGame();s.gold=1e8;s.orbs={alchemy:1,divine:1,scour:1};
- const item=makeItem('foot',0,20,()=>.73);item.upgrade=3;
+ const item=makeItem('foot',0,20,()=>.73);item.upgrade=3;s.inventory.push(item);
  const original=structuredClone(item.implicits);
  assert(craft(s,item,'alchemy',()=>.3).ok);
- assert(craft(s,item,'divine',()=>.9).ok);
+ assert.deepEqual(item.implicits,original);
  assert(craft(s,item,'scour').ok);
- item.rarity=1;assert(benchCraft(s,item,'swiftness',1,()=>.4).ok);
- assert.deepEqual(item.implicits,original);assert.equal(item.upgrade,3);
+ assert.deepEqual(item.implicits,original);
+ // Divine is the only orb that rerolls implicit base values.
+ assert(craft(s,item,'divine',()=>.9).ok);
+ assert.equal(item.upgrade,3);
+ for(const [stat,rate] of Object.entries(GEAR.foot.rates)){
+  assert(item.implicits[stat]>=Math.round(rate*20*.95*10)/10);
+  assert(item.implicits[stat]<=Math.round(rate*20*1.05*10)/10);
+ }
 });
 
 test('v2 equipped gear, inventory, ground loot and category filters migrate once without item loss',()=>{
@@ -168,7 +180,7 @@ test('v2 equipped gear, inventory, ground loot and category filters migrate once
  s.lootFilter={slots:['weapon','armor','charm']};
  const data=new Map([[SAVE_KEY,JSON.stringify(s)]]),storage={getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v)};
  const loaded=loadGame(storage,1000);assert(!loaded.recovered);const migrated=loaded.state;
- assert.equal(migrated.version,4);assert.deepEqual(Object.keys(migrated.equipment),GEAR_SLOTS);
+ assert.equal(migrated.version,5);assert.deepEqual(Object.keys(migrated.equipment),GEAR_SLOTS);
  assert.equal(migrated.equipment.hand.id,'w');assert.equal(migrated.equipment.chest.id,'a');assert.equal(migrated.equipment.neck.id,'c');
  assert.equal(migrated.equipment.hand.upgrade,3);assert.equal(migrated.equipment.hand.affixes[0].value,3);
  assert.equal(migrated.inventory[0].slot,'chest');assert.equal(migrated.groundLoot[0].item.slot,'neck');

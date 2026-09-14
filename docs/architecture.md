@@ -13,7 +13,7 @@
 | `stats()`, `combatStats()` | Derived combat attributes; the live numbers |
 | `tick(s, dt)` | Advance simulation in ≤0.1s steps, returns events |
 | `useSkill()`, `movePlayer()` | Player actions |
-| `equip`, `salvage`, `upgrade`, `merge`, `learn`, `travel` | Resource-mutating services |
+| `equip`, `salvage`, `upgrade`, `learn`, `travel` | Resource-mutating services |
 | `defeatEnemy`, `hurtHero`, `effectiveDamage` | Combat math hooks |
 | `saveGame()`, `loadGame()`, `offlineRewards()` | Persistence & offline progression |
 | `startExpedition`, `spawnEnemy` | Expedition/layout setup |
@@ -50,15 +50,20 @@
 | `MODIFIERS` | 13 combat modifiers with descriptions, icons, auras |
 | `rollModifiers(tier, rng)` | Modifier pools per tier |
 
-**`dist/crafting.js`** — PoE-style currency services (v2.2).
+**`dist/crafting.js`** — PoE-style currency services.
 
 | Export | Purpose |
 |---|---|
 | `CRAFT_OPERATIONS` | 8 orbs: transmute, augment, regal, alchemy, chaos, exalt, scour, divine |
-| `craft(s, item, opId, rng)` | Apply an orb with cost checks; returns `{ok, reason}` |
-| `benchCraft(s, item, affixId, tier, rng)` | Deterministic bench: chosen modifier at chosen tier |
-| `craftCost`, `benchCost` | Gold pricing scaled by item level; orbs are consumed on use |
+| `craft(s, item, opId, rng)` | Apply an orb with eligibility + cost checks; returns `{ok, reason}` |
+| `craftEligibility(opId, item)` | New orb rules: modifier-count gates and 3+3 caps |
+| `craftCost` | Gold pricing scaled by item level; orbs are consumed on use |
 | `craftTarget(s, id)` | Resolve an id to inventory-or-equipped item |
+
+**`dist/essences.js`** — essence recovery and slam crafting. `recoverEssences`
+gives each explicit modifier an independent grade-weighted chance to become an
+essence when salvaged; `applyEssence` replaces a weaker modifier of the same
+family or fills an open slot with a grade-weighted success chance.
 
 ### Browser layer
 
@@ -97,8 +102,9 @@ index.html
        ├─ loot.js
        ├─ combat-ui.js ── engine.js, icons.js
        ├─ expedition-ui.js ── icons, engine, combat-ui, world, monsters, loot, renderer
-       ├─ crafting-ui.js ── icons.js, loot.js, crafting.js
-       └─ crafting.js ── loot.js
+       ├─ crafting-ui.js ── icons.js, loot.js, crafting.js, essences.js
+       ├─ crafting.js ── loot.js
+       └─ essences.js ── loot.js
 ```
 
 Acyclic. `engine.js` never imports UI modules, `crafting.js` never imports the

@@ -1,62 +1,32 @@
 import {implicitMarkup} from './gear.js';
-// Forge-crafting panel: pick a target item, spend gold on PoE-style orbs you
-// found from defeated foes, or use the deterministic bench (gold only).
 import {icon} from './icons.js';
-import {AFFIXES, ITEM_RARITIES, affixText, affixSlots, canAddAffix, tierOf} from './loot.js';
-import {CRAFT_OPERATIONS, craftCost, benchCost} from './crafting.js';
-
-let craftSelected = '', benchAffix = '', benchTier = '';
-const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmt = n => Math.floor(n).toLocaleString();
-
-export const selectCraftItem = id => { craftSelected = id; };
-export const selectBench = (affix, tier) => { if (affix) benchAffix = affix; if (tier !== undefined) benchTier = String(tier); };
-
-export const craftTargets = s => [...Object.values(s.equipment).filter(Boolean), ...s.inventory];
-
-function applicable(opId, item) {
-  if (!item) return false;
-  const open = side => canAddAffix(item, side);
-  switch (opId) {
-    case 'transmute': case 'alchemy': return item.rarity === 0;
-    case 'augment': return item.rarity === 1 && (open('prefix') || open('suffix'));
-    case 'regal': return item.rarity === 1;
-    case 'chaos': return item.rarity === 2;
-    case 'exalt': return item.rarity === 2 && (open('prefix') || open('suffix'));
-    case 'scour': case 'divine': return item.rarity >= 1;
-  }
-  return false;
+import {AFFIXES,ITEM_GRADES,affixText,affixGrade,affixSlots,itemLabel,uniqueDescription} from './loot.js';
+import {CRAFT_OPERATIONS,craftCost,craftEligibility} from './crafting.js';
+import {ESSENCE_RECOVERY,ESSENCE_SUCCESS,MAX_ESSENCE_STACKS,essenceCount,essenceEligibility} from './essences.js';
+let craftSelected='',essenceSelected='';
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export const selectCraftItem=id=>{craftSelected=id;};
+export const selectEssence=id=>{essenceSelected=id;};
+export const craftTargets=s=>[...Object.values(s.equipment).filter(Boolean),...s.inventory];
+export function essencePouch(s){
+ const count=essenceCount(s);
+ return `<section class="panel secondary-panel essence-pouch"><div class="view-section-title"><div><span class="eyebrow">RECOVERED MODIFIERS</span><h2>Essence pouch <span class="capacity">${count}</span></h2><p>${(s.essences||[]).length} / ${MAX_ESSENCE_STACKS} stacks · identical modifiers stack together</p></div><button class="button" data-view="forge">${icon('hammer')} Craft with essences</button></div><div class="essence-grade-counts">${ITEM_GRADES.map((g,i)=>`<span class="grade-${i}"><b>${g}</b><small>${(s.essences||[]).filter(e=>affixGrade(e.affix)===i).reduce((n,e)=>n+e.count,0)}</small></span>`).join('')}</div><p class="inventory-note">Each essence holds one explicit modifier with its exact grade and value. Salvage spare equipment to find more; the loot filter can ignore lower grades.</p></section>`;
 }
-
-export function craftingPanel(s) {
-  const items = craftTargets(s);
-  const item = items.find(i => i.id === craftSelected) || items[0] || null;
-  if (item) craftSelected = item.id;
-  let def = benchAffix && AFFIXES[benchAffix] && AFFIXES[benchAffix].slots.includes(item?.slot) ? AFFIXES[benchAffix] : null;
-  if (!def && item) {
-    for (const [affixId, a] of Object.entries(AFFIXES)) {
-      if (a.slots.includes(item.slot)) { def = a; benchAffix = affixId; break; }
-    }
-  }
-  if (def && item) {
-    const unlocked = def.tiers.map((t, i) => t.minLevel <= item.itemLevel ? i : -1).filter(i => i >= 0);
-    const best = unlocked.length ? Math.max(...unlocked) : 0;
-    if (!benchTier || tierOf(def, Number(benchTier)).minLevel > item.itemLevel) benchTier = String(def.tiers.length - best);
-  }
-  const tierNum = def ? Math.max(1, Math.min(def.tiers.length, Number(benchTier) || 1)) : 1;
-  const benchBig = item && def ? benchCost(def, tierNum, item.itemLevel || 1) : null;
-  const groupOptions = kind => Object.entries(AFFIXES)
-    .filter(([, a]) => a.kind === kind && a.slots.includes(item.slot))
-    .map(([affixId, a]) => `<option value="${affixId}" ${benchAffix === affixId ? 'selected' : ''}>${a.name} · ${a.label}</option>`).join('');
-  return `<section class="panel secondary-panel craft-panel"><div class="view-section-title"><div><h2>The crafting bench</h2><p>Orbs are dropped by defeated foes. Applying one costs gold that scales with item level.</p></div><button class="text-button" data-action="mod-dictionary">${icon('book')} Affix dictionary</button></div>
-  <div class="craft-target"><label for="craft-item">Target</label><select id="craft-item">${items.map(i => `<option value="${i.id}" ${i.id === item?.id ? 'selected' : ''}>${ITEM_RARITIES[i.rarity]} ${esc(i.name)}${i.upgrade ? ' +' + i.upgrade : ''} · ilvl ${i.itemLevel}</option>`).join('')}</select><span class="craft-summary">${item ? `${item.slot} · ${affixSlots(item).prefix} of 3 prefixes · ${affixSlots(item).suffix} of 3 suffixes` : ''}</span></div>
-  ${item ? `<div class="craft-preview">${implicitMarkup(item)}<ul>${item.affixes?.length ? item.affixes.map(a => `<li><span>${affixText(a)}</span><small>T${a.tier} · ${a.min}–${a.max}</small></li>`).join('') : '<li class="empty">No explicit modifiers · a blank canvas</li>'}</ul></div>` : ''}
-  <div class="craft-orbs">${Object.entries(CRAFT_OPERATIONS).map(([opId, op]) => {
-    const ok = applicable(opId, item), cost = item ? craftCost(op, item) : null;
-    const stock = s.orbs?.[opId] || 0, afford = cost ? s.gold >= cost.gold : false;
-    const off = !ok || !cost || stock < 1 || !afford;
-    const reason = !item ? 'Choose a target' : !ok ? 'Not usable on this item' : stock < 1 ? `Defeat enemies to find ${/^[aeiou]/i.test(op.name)?'an':'a'} ${op.name}` : `Needs ${fmt(cost.gold)} gold`;
-    return `<button class="craft-orb ${opId}" data-craft="${opId}" ${off ? 'disabled' : ''} title="${op.flavor}${off ? ' · ' + reason : ''}">${icon(op.icon)}<span><strong>${op.name}<b>×${stock}</b></strong><small>${cost ? `${fmt(cost.gold)} ${icon('coin')}` : '—'}</small></span></button>`;
-  }).join('')}</div>
-  <div class="bench-row"><div class="bench-cell"><label for="bench-affix">Bench modifier</label><select id="bench-affix">${groupOptions('prefix')}${groupOptions('suffix')}</select></div><div class="bench-cell"><label for="bench-tier">Tier</label><select id="bench-tier">${def && item ? def.tiers.map((t, i) => { const n = def.tiers.length - i; return `<option value="${n}" ${Number(benchTier) === n ? 'selected' : ''} ${t.minLevel > item.itemLevel ? 'disabled' : ''}>T${n} · Lv ${t.minLevel}+ · ${t.minVal}–${t.maxVal}</option>`; }).join('') : ''}</select></div><div class="bench-pay"><span>${benchBig ? `${fmt(benchBig.gold)} ${icon('coin')}` : '·'}</span><button class="button gold-button bench-apply" data-bench="1" ${!item || !benchBig || s.gold < benchBig.gold ? 'disabled' : ''}>Apply ${icon('hammer')}</button></div></div></section>`;
+export function craftingPanel(s){
+ const items=craftTargets(s),item=items.find(i=>i.id===craftSelected)||items[0]||null;
+ if(item)craftSelected=item.id;
+ const essences=[...(s.essences||[])].sort((a,b)=>affixGrade(b.affix)-affixGrade(a.affix)||a.affix.id.localeCompare(b.affix.id));
+ const selected=essences.find(e=>e.id===essenceSelected)||essences.find(e=>!essenceEligibility(item,e))||essences[0];
+ if(selected)essenceSelected=selected.id;
+ const reason=essenceEligibility(item,selected),grade=selected?affixGrade(selected.affix):0;
+ return `<section class="panel secondary-panel craft-panel"><div class="view-section-title"><div><h2>The crafting bench</h2><p>Grade follows the strongest modifier. Up to three prefixes and three suffixes.</p></div><button class="text-button" data-action="mod-dictionary">${icon('book')} Modifier dictionary</button></div>
+ <div class="craft-target"><label for="craft-item">Target equipment</label><select id="craft-item">${items.map(i=>`<option value="${esc(i.id)}" ${i.id===item?.id?'selected':''}>${itemLabel(i)} · ${esc(i.name)} · i${i.itemLevel}</option>`).join('')}</select><span class="craft-summary">${item?`${affixSlots(item).prefix} / 3 prefixes · ${affixSlots(item).suffix} / 3 suffixes`: 'No equipment available'}</span></div>
+ ${item?`<div class="craft-preview">${implicitMarkup(item)}${item.unique?`<div class="unique-power"><strong>${icon('star')} Permanent unique implicit</strong><p>${esc(uniqueDescription(item))}</p></div>`:''}<ul>${item.affixes.length?item.affixes.map(a=>`<li><span>${affixText(a)} <small>${AFFIXES[a.id].kind}</small></span><small class="grade-${affixGrade(a)}">${ITEM_GRADES[affixGrade(a)]} · ${a.min}–${a.max}</small></li>`).join(''):'<li class="empty">No explicit modifiers · grade D</li>'}</ul></div>`:''}
+ <h3 class="craft-section-heading">Orb crafting</h3><p class="craft-guidance">Consume one orb and the shown gold cost. Only Divine Orbs can change implicit rolls; unique powers cannot be removed.</p><div class="craft-orbs">${Object.entries(CRAFT_OPERATIONS).map(([id,op])=>{
+  const cost=item?craftCost(op,item):null,stock=s.orbs?.[id]||0,blocked=craftEligibility(id,item)||(!stock?'No orbs available':s.gold<cost.gold?'Not enough gold':'');
+  return `<button class="craft-orb ${id}" data-craft="${id}" ${blocked?'disabled':''} title="${esc(blocked||op.flavor)}">${icon(op.icon)}<span><strong>${op.name}<b>×${stock}</b></strong><small class="orb-rule">${op.flavor}</small><small>${cost?cost.gold+' gold':'Choose an item'}${blocked?' · '+esc(blocked):''}</small></span></button>`;
+ }).join('')}</div>
+ <section class="essence-bench"><div class="view-section-title"><div><h3>Essence crafting</h3><p>${essenceCount(s)} essences · choose one modifier to transfer</p></div><button class="text-button" data-action="loot-filter">Essence filter ${icon('chevron')}</button></div><label for="craft-essence">Essence</label><select id="craft-essence">${essences.length?essences.map(e=>`<option value="${esc(e.id)}" ${selected?.id===e.id?'selected':''}>${ITEM_GRADES[affixGrade(e.affix)]} · ${AFFIXES[e.affix.id].kind} · ${affixText(e.affix)} · ×${e.count}${essenceEligibility(item,e)?' · incompatible':''}</option>`).join(''):'<option value="">Salvage gear to recover essences</option>'}</select>
+ ${selected?`<div class="essence-preview grade-${grade}"><span>${ITEM_GRADES[grade]} ${AFFIXES[selected.affix.id].kind} essence</span><strong>${affixText(selected.affix)}</strong><p>${Math.round(ESSENCE_SUCCESS[grade]*100)}% crafting success · ${ESSENCE_RECOVERY[grade]*100}% salvage recovery</p><small>${reason||((item.affixes||[]).some(a=>a.id===selected.affix.id)?'Replaces the weaker modifier of this family.':'Fills one open '+AFFIXES[selected.affix.id].kind+' slot.')}</small></div>`:''}
+ <p class="craft-guidance">A valid attempt consumes one essence, including on failure. Failure leaves the item unchanged. Replace a weaker modifier of the same family, or use an open slot. The essence carries its exact grade and value; no item-level requirement applies.</p><button class="button gold-button" data-apply-essence="${esc(selected?.id||'')}" ${reason?'disabled':''}>${icon('hammer')} Apply essence${selected?' · '+Math.round(ESSENCE_SUCCESS[grade]*100)+'% success':''}</button></section></section>`;
 }

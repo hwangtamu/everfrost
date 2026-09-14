@@ -1,70 +1,44 @@
-// Path-of-Exile-style crafting services. Orbs can only be found by defeating
-// enemies; applying one to an item costs gold that scales with the target's
-// item level. The crafting bench adds a chosen modifier at a chosen tier for
-// gold alone (no orb is consumed).
-
-import {AFFIXES, affixSlots, canAddAffix, randomSideAffix, rerollItem, rerollValues, makeAffix, tierOf} from './loot.js';
-
-export const CRAFT_OPERATIONS = {
-  transmute: {name: 'Orb of Transmutation', flavor: 'Upgrades a normal item to magic with 1–2 explicit modifiers.', icon: 'sparkles', gold: 20},
-  augment: {name: 'Orb of Augmentation', flavor: 'Adds one explicit modifier to a magic item.', icon: 'sparkles', gold: 35},
-  regal: {name: 'Regal Orb', flavor: 'Raises a magic item to rare and adds one modifier.', icon: 'star', gold: 90},
-  alchemy: {name: 'Orb of Alchemy', flavor: 'Upgrades a normal item directly to rare with a full roll.', icon: 'zap', gold: 110},
-  chaos: {name: 'Orb of Chaos', flavor: 'Rerolls every explicit modifier of a rare item.', icon: 'zap', gold: 150},
-  exalt: {name: 'Exalted Orb', flavor: 'Adds one random modifier to a rare item.', icon: 'star', gold: 240},
-  scour: {name: 'Orb of Scouring', flavor: 'Removes all explicit modifiers, returning the item to normal.', icon: 'download', gold: 30},
-  divine: {name: 'Divine Orb', flavor: 'Rerolls the values of existing modifiers without changing their tiers.', icon: 'sparkles', gold: 70}
+import {AFFIXES,affixSlots,randomSideAffix,rollModifierCount,rerollValues,renameItem,UNIQUE_EFFECTS} from './loot.js';
+import {rollImplicits} from './gear.js';
+export const CRAFT_OPERATIONS={
+ transmute:{name:'Orb of Transmutation',flavor:'Reroll all explicit modifiers into 1–2 modifiers.',icon:'sparkles',gold:20},
+ augment:{name:'Orb of Augmentation',flavor:'With fewer than 2 explicit modifiers, add one.',icon:'sparkles',gold:35},
+ regal:{name:'Regal Orb',flavor:'With fewer than 4 explicit modifiers, add one.',icon:'star',gold:90},
+ alchemy:{name:'Orb of Alchemy',flavor:'With fewer than 3 explicit modifiers, reroll into 3–6.',icon:'zap',gold:110},
+ chaos:{name:'Chaos Orb',flavor:'With more than 3 explicit modifiers, reroll into exactly 6.',icon:'zap',gold:150},
+ exalt:{name:'Exalted Orb',flavor:'With fewer than 6 explicit modifiers, add an available prefix or suffix.',icon:'star',gold:240},
+ scour:{name:'Orb of Scouring',flavor:'Remove every explicit modifier. All implicit powers remain.',icon:'download',gold:30},
+ divine:{name:'Divine Orb',flavor:'Reroll explicit values, base implicit values and variable unique implicit values. Keep all modifier types and tiers.',icon:'sparkles',gold:70}
 };
-
-export const craftCost = (op, item) => ({gold: Math.round(op.gold * (1 + (item?.itemLevel || 1) * .18))});
-
-export const craftTarget = (s, id) =>
-  (id ? s.inventory.find(i => i.id === id) : null) || Object.values(s.equipment).find(i => i?.id === id) || null;
-
-export function craft(s, item, opId, rng = Math.random) {
-  const op = CRAFT_OPERATIONS[opId];
-  if (!op || !item) return {ok: false, reason: 'Unknown operation or target.'};
-  const article = /^[aeiou]/i.test(op.name) ? 'an' : 'a';
-  if ((s.orbs?.[opId] || 0) < 1) return {ok: false, reason: `You don't have ${article} ${op.name}. Defeat enemies to find orbs.`};
-  const cost = craftCost(op, item);
-  if (s.gold < cost.gold) return {ok: false, reason: `Not enough gold (${cost.gold}).`};
-  const open = () => ['prefix', 'suffix'].filter(side => canAddAffix(item, side));
-  switch (opId) {
-    case 'transmute': if (item.rarity !== 0) return {ok: false, reason: 'Only normal items can be transmuted.'}; rerollItem(item, 1, rng); break;
-    case 'augment': if (item.rarity !== 1) return {ok: false, reason: 'Only magic items can be augmented.'}; if (!open().length) return {ok: false, reason: 'Every modifier slot is full.'}; randomSideAffix(item, rng); break;
-    case 'regal': if (item.rarity !== 1) return {ok: false, reason: 'Only magic items can be raised by a Regal Orb.'}; item.rarity = 2; randomSideAffix(item, rng); break;
-    case 'alchemy': if (item.rarity !== 0) return {ok: false, reason: 'Only normal items can be upgraded by an Orb of Alchemy.'}; rerollItem(item, 2, rng); break;
-    case 'chaos': if (item.rarity !== 2) return {ok: false, reason: 'Chaos orbs reroll rare items.'}; rerollItem(item, 2, rng); break;
-    case 'exalt': if (item.rarity !== 2) return {ok: false, reason: 'Exalted orbs only affect rare items.'}; if (!open().length) return {ok: false, reason: 'Every modifier slot is full.'}; randomSideAffix(item, rng); break;
-    case 'scour': if (item.rarity < 1) return {ok: false, reason: 'This item already has no modifiers.'}; item.rarity = 0; item.affixes = []; item.unique = null; break;
-    case 'divine': if (item.rarity < 1) return {ok: false, reason: 'Divine orbs need an explicit modifier to bless.'}; rerollValues(item, rng); break;
-    default: return {ok: false, reason: 'Unknown operation.'};
-  }
-  s.gold -= cost.gold;
-  s.orbs[opId] = Math.max(0, (s.orbs[opId] || 0) - 1);
-  s.crafted = (s.crafted || 0) + 1;
-  return {ok: true, item, opId, cost};
+export const craftCost=(op,item)=>({gold:Math.round(op.gold*(1+(item?.itemLevel||1)*.18))});
+export const craftTarget=(s,id)=>(id?s.inventory.find(i=>i.id===id):null)||Object.values(s.equipment).find(i=>i?.id===id)||null;
+export function craftEligibility(opId,item){
+ if(!item||!CRAFT_OPERATIONS[opId])return 'Choose an item and an orb.';
+ const count=(item.affixes||[]).length;
+ if(opId==='augment'&&count>=2)return 'Requires fewer than 2 explicit modifiers.';
+ if(opId==='regal'&&count>=4)return 'Requires fewer than 4 explicit modifiers.';
+ if(opId==='alchemy'&&count>=3)return 'Requires fewer than 3 explicit modifiers.';
+ if(opId==='chaos'&&count<=3)return 'Requires more than 3 explicit modifiers.';
+ if(opId==='exalt'&&count>=6)return 'All six explicit modifier slots are full.';
+ if(opId==='scour'&&!count)return 'There are no explicit modifiers to remove.';
+ return '';
 }
-
-export function benchCost(def, tier, itemLevel) {
-  const t = tierOf(def, tier), center = (t.minVal + t.maxVal) / 2;
-  return {gold: Math.max(25, Math.round(center * 6 * (1 + itemLevel * .08)))};
-}
-
-export function benchCraft(s, item, affixId, tier, rng = Math.random) {
-  const def = AFFIXES[affixId];
-  if (!item || !def) return {ok: false, reason: 'Choose a modifier and a target item.'};
-  if (item.rarity === 0) return {ok: false, reason: 'The bench needs a magic or rare item.'};
-  if (!def.slots.includes(item.slot)) return {ok: false, reason: `${def.name} cannot be applied to ${item.slot}s.`};
-  const tierNum = Math.max(1, Math.min(def.tiers.length, Math.round(Number(tier) || 1)));
-  const t = tierOf(def, tierNum);
-  if (t.minLevel > item.itemLevel) return {ok: false, reason: `Tier ${tierNum} requires item level ${t.minLevel} or higher.`};
-  if (!canAddAffix(item, def.kind)) return {ok: false, reason: `All ${def.kind} slots are full.`};
-  if ((item.affixes || []).some(a => a.id === affixId)) return {ok: false, reason: 'That modifier is already present.'};
-  const cost = benchCost(def, tierNum, item.itemLevel || 1);
-  if (s.gold < cost.gold) return {ok: false, reason: `Not enough gold (${cost.gold}).`};
-  s.gold -= cost.gold;
-  s.crafted = (s.crafted || 0) + 1;
-  item.affixes = [...(item.affixes || []), makeAffix(affixId, item.itemLevel || 1, rng, tierNum)];
-  return {ok: true, item, affix: def.name, tier: tierNum, cost};
+export function craft(s,item,opId,rng=Math.random){
+ const reason=craftEligibility(opId,item);if(reason)return {ok:false,reason};
+ if(craftTarget(s,item.id)!==item)return {ok:false,reason:'Choose an owned item.'};
+ const op=CRAFT_OPERATIONS[opId],cost=craftCost(op,item);
+ if((s.orbs?.[opId]||0)<1)return {ok:false,reason:`No ${op.name} available.`};
+ if(s.gold<cost.gold)return {ok:false,reason:`Requires ${cost.gold} gold.`};
+ const next=structuredClone(item);
+ switch(opId){
+  case 'transmute':rollModifierCount(next,1+Math.floor(rng()*2),rng);break;
+  case 'alchemy':rollModifierCount(next,3+Math.floor(rng()*4),rng);break;
+  case 'chaos':rollModifierCount(next,6,rng);break;
+  case 'augment':case 'regal':case 'exalt':if(!randomSideAffix(next,rng))return {ok:false,reason:'No legal modifier slot is available.'};break;
+  case 'scour':next.affixes=[];break;
+  case 'divine':rerollValues(next,rng);next.implicits=rollImplicits(next.slot,next.itemLevel,rng);if(UNIQUE_EFFECTS[next.unique]?.stats)next.uniqueRoll=Math.round((.9+rng()*.2)*1000)/1000;break;
+ }
+ const slots=affixSlots(next);if(slots.prefix>3||slots.suffix>3||next.affixes.length>6||next.affixes.some(a=>!AFFIXES[a.id]))return {ok:false,reason:'Invalid modifier arrangement.'};
+ renameItem(next);Object.assign(item,next);s.gold-=cost.gold;s.orbs[opId]--;s.crafted=(s.crafted||0)+1;
+ return {ok:true,item,opId,cost};
 }

@@ -1,10 +1,17 @@
-import {GEAR_SLOTS,RING_SLOTS} from './gear.js';
+import {GEAR,GEAR_SLOTS,RING_SLOTS} from './gear.js';
 // Equipment modifiers modeled on Path of Exile's explicit affixes. Every modifier is
 // either a prefix or a suffix, and either side holds at most three at once. Each affix
-// family defines five tiers (Tier 1 is the strongest and is gated behind a high item
+// family defines nine tiers (S / Tier 1 is strongest and gated behind a high item
 // level). Numeric values roll inside the tier's range, so a Tier 2 roll can be low or high.
 
-export const ITEM_RARITIES = ['Normal', 'Magic', 'Rare', 'Unique'];
+// Keystone rarity and monster tiers are independent from equipment grades.
+export const KEYSTONE_RARITIES = ['Normal', 'Magic', 'Rare', 'Unique'];
+export const ITEM_GRADES = ['D','C','B','A','AA','AAA','AAAA','AAAAA','S'];
+export const GRADE_COLORS = ['#a8b5a7','#83bda0','#76b9da','#898fe1','#b497e8','#d38ed2','#e7958a','#e9b264','#efe08b'];
+export const affixGrade = affix => Math.max(0,Math.min(8,9-(affix?.tier||9)));
+export const itemGrade = item => Math.max(0,...(item?.affixes||[]).filter(a=>AFFIXES[a.id]).map(affixGrade));
+export const itemLabel = item => ITEM_GRADES[itemGrade(item)]+(item?.unique?' · Unique':'');
+export const itemColor = item => GRADE_COLORS[itemGrade(item)];
 export const AFFIX_LIMIT = 3;
 const T = (...rows) => rows.map(([minLevel, minVal, maxVal]) => ({minLevel, minVal, maxVal}));
 
@@ -28,6 +35,11 @@ export const AFFIXES = {
   leech: {name: 'of Leech', label: '% damage leeched as life', stat: 'leech', kind: 'suffix', decimals: 1, slots: ['hand', 'wrist', ...RING_SLOTS], tiers: T([1,1,2],[4,1.5,3],[8,2.5,4],[13,3.5,5.5],[19,5,7])},
   regeneration: {name: 'of Renewal', label: 'life regenerated / sec', stat: 'regen', kind: 'suffix', decimals: 1, slots: GEAR_SLOTS.filter(s=>s!=='hand'), tiers: T([1,1,2.5],[4,2,4],[8,3,6],[13,4.5,8],[19,6,10])}
 };
+// Retain the five original value bands as D through AA. Add endgame bands.
+for(const def of Object.values(AFFIXES)){
+ const base=def.tiers.at(-1),factor=10**(def.decimals||0);
+ for(const [minLevel,multiplier] of [[35,1.4],[60,1.9],[100,2.5],[160,3.3]])def.tiers.push({minLevel,minVal:Math.round(base.minVal*multiplier*factor)/factor,maxVal:Math.round(base.maxVal*multiplier*factor)/factor});
+}
 // Unique powers keyed by id, in the spirit of Diablo II / Path of Exile
 // uniques: a named power fixed to a base item. `slots` limits which gear slots
 // can roll each power. `stats` grants equipment bonuses like explicit affixes —
@@ -86,11 +98,11 @@ export const uniquesForSlot = slot => Object.values(UNIQUE_EFFECTS).filter(u => 
 export function uniqueBonuses(items) {
   const out = {}, strongest = new Map();
   for (const item of items.filter(Boolean)) {
-    if (!strongest.has(item.unique) || item.itemLevel > strongest.get(item.unique).itemLevel) strongest.set(item.unique,item);
+    if (!strongest.has(item.unique) || item.itemLevel*(item.uniqueRoll??1) > strongest.get(item.unique).itemLevel*(strongest.get(item.unique).uniqueRoll??1)) strongest.set(item.unique,item);
   }
   for (const item of strongest.values()) {
     const u = UNIQUE_EFFECTS[item.unique]; if (!u?.stats) continue;
-    for (const [stat, v] of Object.entries(u.stats)) out[stat] = (out[stat] || 0) + Math.round((v.perLevel ? v.perLevel * (item.itemLevel || 1) : v) * 10) / 10;
+    for (const [stat, v] of Object.entries(u.stats)) out[stat] = (out[stat] || 0) + Math.round((v.perLevel ? v.perLevel * (item.itemLevel || 1) : v) * (item.uniqueRoll??1) * 10) / 10;
   }
   return out;
 }
@@ -160,10 +172,35 @@ export function randomSideAffix(item, rng = Math.random) {
   const open = ['prefix', 'suffix'].filter(side => canAddAffix(item, side));
   return open.length ? addAffix(item, open[Math.floor(rng() * open.length)], rng) : null;
 }
-export function rerollItem(item, rarity, rng = Math.random) {
-  item.affixes = rollAffixes(item.slot, rarity, item.itemLevel || 1, rng);
-  item.rarity = rarity;
-  return item;
+export function rollModifierCount(item,count,rng=Math.random){
+ const next={...item,affixes:[]};
+ for(let i=0;i<count;i++)if(!randomSideAffix(next,rng))throw Error('No legal modifier slot');
+ item.affixes=next.affixes;return item;
+}
+export function renameItem(item){
+ const unique=UNIQUE_EFFECTS[item.unique],prefix=item.affixes.find(a=>AFFIXES[a.id]?.kind==='prefix'),suffix=item.affixes.find(a=>AFFIXES[a.id]?.kind==='suffix');
+ item.name=unique?unique.name+' '+GEAR[item.slot].name:(prefix?AFFIXES[prefix.id].name+' ':'')+GEAR[item.slot].name+(suffix?' '+AFFIXES[suffix.id].name:'');return item;
+}
+export function uniqueDescription(item){
+ const u=UNIQUE_EFFECTS[item?.unique];if(!u)return '';
+ if(!u.stats)return u.description+' Fixed implicit power; cannot be removed or rerolled.';
+ const values=uniqueBonuses([item]);
+ const labels={attack:'damage',defense:'armor',maxHp:'life',fire:'fire damage',cold:'cold damage',lightning:'lightning damage',critical:'% critical chance',criticalMultiplier:'% critical multiplier',movement:'% movement speed',haste:'% attack speed',reach:'tiles attack range',regen:'life regenerated/sec',resist:'% resistance',leech:'% life leech'};
+ return (item.unique==='ironstride'?'Cannot be chilled · ':'')+Object.entries(values).map(([key,value])=>'+'+value+' '+labels[key]).join(' · ')+'. Divine roll '+Math.round((item.uniqueRoll??1)*100)+'% (90–110%). Duplicate powers do not stack.';
+}
+export function normalizeItemModifiers(item){
+ const legacy=item.modifierVersion!==2,seen=new Set(),counts={prefix:0,suffix:0},affixes=[];
+ for(const raw of Array.isArray(item.affixes)?item.affixes:[]){
+  const def=AFFIXES[raw?.id];if(!def||!def.slots.includes(item.slot)||seen.has(raw.id)||counts[def.kind]>=AFFIX_LIMIT||!Number.isFinite(raw.value)||raw.value<0)continue;
+  let tier=Number.isInteger(raw.tier)?raw.tier+(legacy?4:0):0;
+  if(tier<1||tier>9){let index=def.tiers.findIndex(t=>raw.value>=t.minVal&&raw.value<=t.maxVal);if(index<0)index=def.tiers.reduce((best,t,i)=>Math.abs(raw.value-(t.minVal+t.maxVal)/2)<Math.abs(raw.value-(def.tiers[best].minVal+def.tiers[best].maxVal)/2)?i:best,0);tier=9-index;}
+  const t=tierOf(def,tier);affixes.push({...raw,tier,min:t.minVal,max:t.maxVal,value:Math.max(t.minVal,Math.min(t.maxVal,raw.value))});counts[def.kind]++;seen.add(raw.id);
+ }
+ item.affixes=affixes;item.modifierVersion=2;delete item.rarity;
+ if(!UNIQUE_EFFECTS[item.unique]?.slots.includes(item.slot))item.unique=null;
+ if(UNIQUE_EFFECTS[item.unique]?.stats)item.uniqueRoll=Number.isFinite(item.uniqueRoll)?Math.max(.9,Math.min(1.1,item.uniqueRoll)):1;
+ else delete item.uniqueRoll;
+ return item;
 }
 export function rerollValues(item, rng = Math.random) {
   for (const affix of item.affixes || []) {

@@ -29,6 +29,7 @@ export const primaryStat=item=>Object.keys(GEAR[item.slot].rates)[0];
 export const primaryPower=item=>implicitStats(item)[primaryStat(item)]||0;
 export function migrateGear(item){
   const legacy=!!LEGACY_SLOTS[item.slot];
+  if(Object.hasOwn(item,'locked'))item.locked=item.locked===true;
   item.slot=canonicalSlot(item.slot);
   item.itemLevel=Number.isSafeInteger(item.itemLevel)&&item.itemLevel>0?item.itemLevel:1;
   if(legacy)item.name=GEAR[item.slot].name;
@@ -42,5 +43,5 @@ export function migrateGear(item){
 }
 export function implicitMarkup(item){
   const effective=implicitStats(item);
-  return `<section class="implicit-stats"><strong>Implicit base stats · item level ${item.itemLevel}</strong>${Object.entries(item.implicits).map(([stat,value])=>`<div><span>${STAT_LABELS[stat]}</span><b>${effective[stat]}${item.upgrade?` <small>(${value} base + ${item.upgrade*10}%)</small>`:''}</b></div>`).join('')}<p>Item level × slot base value, with ±5% variance. Explicit crafting preserves this roll.</p></section>`;
+  return `<section class="implicit-stats"><strong>Implicit base stats · item level ${item.itemLevel}</strong>${Object.entries(item.implicits).map(([stat,value])=>`<div><span>${STAT_LABELS[stat]}</span><b>${effective[stat]}${item.upgrade?` <small>(${value} base + ${item.upgrade*10}%)</small>`:''}</b></div>`).join('')}<p>Item level × slot base value, with ±5% variance. Only a Divine Orb rerolls these base values.</p></section>`;
 }

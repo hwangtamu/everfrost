@@ -1,8 +1,8 @@
 import {GEAR_SLOTS} from '../dist/gear.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {AFFIXES, rollAffixes, makeAffix, affixSlots, canAddAffix, rerollValues, tierOf, affixText} from '../dist/loot.js';
-import {CRAFT_OPERATIONS, craft, craftCost, benchCraft, benchCost, craftTarget} from '../dist/crafting.js';
+import {AFFIXES, rollAffixes, makeAffix, affixSlots, rerollValues, tierOf, affixText, itemGrade, ITEM_GRADES} from '../dist/loot.js';
+import {CRAFT_OPERATIONS, craft, craftCost, craftEligibility, craftTarget} from '../dist/crafting.js';
 import {createGame, makeItem, saveGame, loadGame, SAVE_KEY} from '../dist/engine.js';
 import {seededRandom} from '../dist/world.js';
 
@@ -40,77 +40,117 @@ test('tiers gate by item level and values stay inside their tier range', () => {
   }
   // A high item level can reach Tier 1; a low one never can.
   const low = new Set(Array.from({length: 300}, () => makeAffix('might', 2, rng).tier));
-  const high = new Set(Array.from({length: 300}, () => makeAffix('might', 30, rng).tier));
-  assert(low.has(5)); assert(!low.has(1)); assert(high.has(1));
+  const mid = new Set(Array.from({length: 300}, () => makeAffix('might', 30, rng).tier));
+  const high = new Set(Array.from({length: 300}, () => makeAffix('might', 200, rng).tier));
+  assert(low.has(9)); assert(!low.has(5)); assert(mid.has(5)); assert(!mid.has(1)); assert(high.has(1));
 });
 
-test('crafting orbs follow rarity transitions and charge exact costs once', () => {
+test('orb eligibility follows the new rules and failed crafts never charge', () => {
   const s = rich();
-  const item = makeItem('hand', 0, 10);
+  const bare = makeItem('hand', 0, 20);            // 0 explicit modifiers
+  assert.equal(craftEligibility('augment', bare), '');
+  assert.equal(craftEligibility('regal', bare), '');
+  assert.equal(craftEligibility('alchemy', bare), '');
+  assert(craftEligibility('chaos', bare));          // requires more than 3
+  assert.equal(craftEligibility('exalt', bare), '');
+  assert(craftEligibility('scour', bare));          // nothing to remove
+
+  const full = makeItem('hand', 3, 20);             // 3 prefixes + 3 suffixes
+  assert.equal(full.affixes.length, 6);
+  assert(craftEligibility('augment', full));
+  assert(craftEligibility('regal', full));
+  assert(craftEligibility('alchemy', full));
+  assert.equal(craftEligibility('chaos', full), '');
+  assert(craftEligibility('exalt', full));
+
+  const gold = s.gold, orbs = s.orbs.exalt, snapshot = JSON.stringify(full);
+  assert(!craft(s, full, 'exalt', rng).ok);
+  assert.equal(s.gold, gold); assert.equal(s.orbs.exalt, orbs);
+  assert.equal(JSON.stringify(full), snapshot);
+});
+
+test('crafting orbs produce the specified modifier counts and charge exact costs once', () => {
+  const s = rich();
+  const item = makeItem('hand', 0, 20); s.inventory.push(item);
   const cost = craftCost(CRAFT_OPERATIONS.transmute, item);
   const gold = s.gold, orbs = s.orbs.transmute;
   assert(craft(s, item, 'transmute', rng).ok);
-  assert.equal(item.rarity, 1);
-  assert(item.affixes.length >= 1 && item.affixes.length <= 2);
+  assert(item.affixes.length >= 1 && item.affixes.length <= 2); // at most two
   assert.equal(s.gold, gold - cost.gold); assert.equal(s.orbs.transmute, orbs - 1);
-  assert(!craft(s, item, 'transmute', rng).ok); // already magic
 
-  const before = item.affixes.length;
-  assert(craft(s, item, 'augment', rng).ok);
-  assert.equal(item.affixes.length, before + 1);
+  // Transmutation is always available: it rerolls into 1–2 modifiers again.
+  assert(craft(s, item, 'transmute', rng).ok);
+  assert(item.affixes.length >= 1 && item.affixes.length <= 2);
 
-  assert(craft(s, item, 'regal', rng).ok);
-  assert.equal(item.rarity, 2);
-  const rareCount = item.affixes.length;
-  assert(craft(s, item, 'exalt', rng).ok);
-  assert.equal(item.affixes.length, rareCount + 1);
+  // Reach more than 3 modifiers with Exalted (adds one until 6).
+  let guard = 20;
+  while (item.affixes.length <= 3 && guard-- > 0) assert(craft(s, item, 'exalt', rng).ok);
+  assert(item.affixes.length > 3);
+  assert(craft(s, item, 'chaos', rng).ok);           // reroll into exactly 6
+  assert.equal(item.affixes.length, 6);
+  const slots = affixSlots(item);
+  assert(slots.prefix === 3 && slots.suffix === 3);
 
-  assert(craft(s, item, 'chaos', rng).ok);
-  assert.equal(item.rarity, 2);
-  assert(item.affixes.length >= 4 && item.affixes.length <= 6);
-
-  const ids = item.affixes.map(a => a.id);
-  assert(craft(s, item, 'divine', rng).ok);
-  assert.deepEqual(item.affixes.map(a => a.id), ids);
-
-  assert(craft(s, item, 'scour', rng).ok);
-  assert.equal(item.rarity, 0); assert.equal(item.affixes.length, 0);
-  assert(!craft(s, item, 'exalt', rng).ok);
-
-  // Failure paths do not spend resources or mutate the item.
-  const snapshot = JSON.stringify(item);
-  s.gold = 0;
-  assert(!craft(s, item, 'alchemy', rng).ok);
-  assert.equal(JSON.stringify(item), snapshot);
-  assert(affixSlots(item).prefix === 0);
+  assert(craft(s, item, 'transmute', rng).ok);       // back to 1–2
+  assert(craft(s, item, 'alchemy', rng).ok);         // fewer than 3 → 3–6
+  assert(item.affixes.length >= 3 && item.affixes.length <= 6);
+  assert(affixSlots(item).prefix <= 3 && affixSlots(item).suffix <= 3);
 });
 
-test('alchemy, full rerolls and bench crafting stay within all caps', () => {
+test('augment, regal and exalt each add exactly one modifier inside the 3+3 caps', () => {
   const s = rich();
-  const item = makeItem('hand', 0, 12);
-  assert(craft(s, item, 'alchemy', rng).ok);
-  assert.equal(item.rarity, 2);
-  const weaponPrefixes = ['might', 'fire', 'cold', 'lightning'];
-  // Find a state with an open prefix slot and a prefix family not already present.
-  for (let guard = 0; guard < 40 && (item.affixes.filter(a => AFFIXES[a.id].kind === 'prefix').length > 2 || weaponPrefixes.every(id => item.affixes.some(a => a.id === id))); guard++) {
-    craft(s, item, 'chaos', rng);
-  }
-  const id = weaponPrefixes.find(x => !item.affixes.some(a => a.id === x));
-  const prefixes = item.affixes.filter(a => AFFIXES[a.id].kind === 'prefix');
-  assert(prefixes.length >= 2 && prefixes.length <= 3);
-  assert(id);
+  const item = makeItem('hand', 0, 20); s.inventory.push(item);
+  assert(craft(s, item, 'augment', rng).ok);
+  assert.equal(item.affixes.length, 1);
+  assert(craft(s, item, 'regal', rng).ok);
+  assert.equal(item.affixes.length, 2);
+  assert(craft(s, item, 'exalt', rng).ok);
+  assert.equal(item.affixes.length, 3);
+  assert(affixSlots(item).prefix <= 3 && affixSlots(item).suffix <= 3);
+  // A full item refuses every adding orb.
+  const full = makeItem('hand', 3, 20);
+  assert(!craft(s, full, 'augment', rng).ok);
+  assert(!craft(s, full, 'regal', rng).ok);
+  assert(!craft(s, full, 'exalt', rng).ok);
+});
 
-  const def = AFFIXES[id], cost = benchCost(def, 3, item.itemLevel);
-  const gold = s.gold;
-  const r = benchCraft(s, item, id, 3, rng);
-  assert(r.ok);
-  const affix = item.affixes.find(a => a.id === id);
-  assert(affix); assert.equal(affix.tier, 3);
-  assert.equal(affix.min, def.tiers.at(-3).minVal);
-  assert.equal(s.gold, gold - cost.gold);
-  assert(!benchCraft(s, item, id, 3, rng).ok); // duplicates rejected
-  assert(!benchCraft(s, makeItem('hand', 1, 3), id, 3, rng).ok); // item level too low
-  assert(!benchCraft(s, item, 'resist', 3, rng).ok); // wrong slot for a weapon
+test('scouring removes every explicit modifier and keeps unique powers', () => {
+  const s = rich();
+  const item = makeItem('hand', 3, 20); s.inventory.push(item);
+  const unique = item.unique, roll = item.uniqueRoll;
+  assert.equal(item.affixes.length, 6);
+  assert(craft(s, item, 'scour', rng).ok);
+  assert.equal(item.affixes.length, 0);
+  assert.equal(item.unique, unique);     // permanent implicit power survives
+  assert.equal(item.uniqueRoll, roll);   // its roll is untouched by scouring
+  assert(!craft(s, item, 'scour', rng).ok);
+});
+
+test('divine rerolls every value while keeping modifier types and tiers', () => {
+  const s = rich();
+  const item = makeItem('hand', 3, 20); s.inventory.push(item);
+  const ids = item.affixes.map(a => a.id), tiers = item.affixes.map(a => a.tier);
+  const unique = item.unique, roll = item.uniqueRoll;
+  assert(craft(s, item, 'divine', rng).ok);
+  assert.deepEqual(item.affixes.map(a => a.id), ids);
+  assert.deepEqual(item.affixes.map(a => a.tier), tiers);
+  for (const a of item.affixes) {
+    const t = tierOf(AFFIXES[a.id], a.tier);
+    assert(a.value >= t.minVal && a.value <= t.maxVal);
+  }
+  assert.equal(item.unique, unique);
+  if (roll !== undefined) assert(item.uniqueRoll >= .9 && item.uniqueRoll <= 1.1);
+});
+
+test('item grade follows the strongest modifier tier, from D to S', () => {
+  const d = makeItem('hand', 0, 20); // no modifiers
+  assert.equal(itemGrade(d), 0); assert.equal(ITEM_GRADES[itemGrade(d)], 'D');
+  d.affixes = [{id: 'might', tier: 9, value: 3, min: 2, max: 4}];
+  assert.equal(itemGrade(d), 0);
+  d.affixes.push({id: 'haste', tier: 1, value: 22, min: 22, max: 29});
+  assert.equal(itemGrade(d), 8); assert.equal(ITEM_GRADES[itemGrade(d)], 'S');
+  d.affixes = [{id: 'fire', tier: 6, value: 23, min: 23, max: 34}];
+  assert.equal(itemGrade(d), 3); assert.equal(ITEM_GRADES[itemGrade(d)], 'A');
 });
 
 test('craftTarget finds equipped and satchel items; craft tracks the forge quest', () => {
@@ -128,10 +168,9 @@ test('craftTarget finds equipped and satchel items; craft tracks the forge quest
 
 test('legacy-style and crafted affixes survive the save round trip', () => {
   const storage = memory(), s = rich();
-  const item = makeItem('hand', 2, 12);
+  const item = makeItem('hand', 2, 12); s.inventory.unshift(item);
   craft(s, item, 'divine', rng);
   item.affixes[0] = {id: item.affixes[0].id, value: 13}; // legacy: no tier, min or max
-  s.inventory.unshift(item);
   saveGame(s, storage, 1000);
   const loaded = loadGame(storage, 1001);
   assert(!loaded.recovered);
@@ -142,7 +181,6 @@ test('legacy-style and crafted affixes survive the save round trip', () => {
     assert(a.value >= t.minVal && a.value <= t.maxVal);
     assert.equal(a.min, t.minVal); assert.equal(a.max, t.maxVal);
   }
-  assert.equal(canAddAffix(copy, 'prefix'), copy.affixes.filter(a => AFFIXES[a.id].kind === 'prefix').length < 3);
 });
 
 test('divine orb rerolls values but keeps tiers and never exceeds the tier range', () => {

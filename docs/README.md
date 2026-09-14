@@ -26,8 +26,9 @@ game/
 │   ├── world.js          Seeded linear map generation + pathfinding
 │   ├── loot.js           Tiered prefix/suffix modifier definitions + rolling
 │   ├── monsters.js       Enemy tiers + combat modifiers
-│   ├── crafting.js       PoE-style orb services + deterministic bench
-│   ├── crafting-ui.js    Forge crafting panel markup
+│   ├── crafting.js       PoE-style orb services + eligibility rules
+│   ├── essences.js       Essence recovery, stacking and slam crafting
+│   ├── crafting-ui.js    Forge crafting + essence panel markup
 │   ├── combat-ui.js      Live combat attribute panel + equip comparisons
 │   ├── loot-filter.js    Persistent loot-filter rules + matching
 │   ├── loot-filter-ui.js Loot-filter editor form + preview
@@ -41,9 +42,14 @@ game/
 │   └── assets/mistwood.png  Generated forest texture
 ├── tests/
 │   ├── engine.test.mjs       15 tests: rules, economy, sanity bounds
-│   ├── expedition.test.mjs   14 tests: maps, combat, loot, migration
+│   ├── expedition.test.mjs   16 tests: maps, combat, loot, migration
 │   ├── combat-loot.test.mjs   9 tests: attributes, filters, drops, journeys
-│   └── crafting.test.mjs      7 tests: tiers, orbs, bench, save round-trip
+│   ├── crafting.test.mjs     11 tests: tiers, grades, orb rules, round-trips
+│   ├── essences.test.mjs      6 tests: recovery odds, stacking, slam crafting
+│   ├── gear.test.mjs         12 tests: slots, implicits, uniques, panels
+│   ├── refinements.test.mjs   7 tests: maps, bosses, HUD, locked gear
+│   ├── rift.test.mjs         12 tests: keystones, arena waves, rewards
+│   └── cloud.test.mjs        10 tests: cloud-save sync and conflicts
 └── .openai/hosting.json    Static hosting manifest (serves dist/)
 ```
 
@@ -67,5 +73,5 @@ game/
 
 ```sh
 node server.mjs              # http://localhost:5173
-node --test tests/*.test.mjs # run the 45 tests
+node --test tests/*.test.mjs # run the 98 tests
 ```

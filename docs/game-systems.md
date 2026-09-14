@@ -45,7 +45,7 @@ temporary chill cannot distort an upgrade decision.
 
 - Fixed 46×34 tile grid; `tiles[i]` 0 = wall, 1 = walkable.
 - 9 clearings in a 3×3 grid, carved with sizes/positions from the seed,
-  connected by one serpentine route. The intermediate room graph is a simple
+  connected by a randomly selected Hamiltonian route. The intermediate room graph is a simple
   path (degree ≤2), so there are **no loops and no shortcuts** — the 500-seed
   test removes each interior clearing and asserts the entrance→boss path dies.
 - Roles: entrance (route[0]), boss sanctum (route[8]), a shrine + chest near
@@ -63,8 +63,7 @@ temporary chill cannot distort an upgrade decision.
   - the second room (or 23% of others) is a **magic pack** of 3–5 magic foes
     (1 shared modifier);
   - the rest are **normal packs** of 4–6 enemies.
-- A **unique guardian** always spawns in the boss room with `earthshatter +
-  empowered`.
+- A **unique guardian** spawns in the boss room. `bosses.js` selects one of six identities, each with its own silhouette, palette, two modifiers, and two alternating telegraphed skills.
 - Guardian bar: normal kills +1, magic +2, rare +5. Reaching `map.goal` breaks
   the seal (`bossUnlocked`), reveals the guardian, and opens the sanctum.
   Defeating the guardian sets `map.completed`, bumps `maxStage`, and (if auto
@@ -104,68 +103,88 @@ disables them with "No targets in range" when nothing is reachable.
 
 ### Drops
 
-| Enemy tier | Drop chance | Guaranteed floor | Always yields |
+| Enemy tier | Drop chance | Guaranteed floor | Modifier count |
 |---|---|---|---|
-| normal | 30% | — | 1 item |
-| magic | 70% | — | 1 item |
-| rare | 100% | magic-or-better | 1 item |
-| unique (guardian) | 100% | two rare-or-better | 2 items |
+| normal | 30% | — | 0 |
+| magic | 70% | — | 1–2 |
+| rare | 100% | modified equipment | 4–6 |
+| unique (guardian) | 100% | two modified drops | 3 + 3 |
 
-`lootRarity` maps an enemy roll to normal/magic/rare/unique with tuned
-thresholds per tier. Rare leaders & guardians drive the equipment economy.
+`lootRarity` still rolls an internal normal/magic/rare/unique tier, but that
+tier now only decides **how many explicit modifiers** an item rolls — it is
+never stored on the item. Rare leaders & guardians keep the equipment economy
+flowing with guaranteed modified gear.
 
 ### Explicit modifiers (`loot.js`)
 
-PoE-style rules (added in v2.2):
+PoE-style rules:
 
 - Every affix is a **prefix** or **suffix**; each side holds at most **3**.
-- **Rarity ⇒ mod count**: Normal 0 · Magic 1–2 · Rare 4–6 (2–3 prefixes, 2–3
-  suffixes) · Unique 3+3.
-- Each family has **5 tiers**; Tier 1 is strongest and requires item level 19,
-  Tier 5 rolls at level 1 (gates: 1/4/8/13/19). Values roll uniformly inside
-  the tier's range.
+- **Roll-time tier ⇒ mod count**: normal 0 · magic 1–2 · rare 4–6 (2–3
+  prefixes, 2–3 suffixes) · unique 3+3.
+- Each family defines **9 tiers**; Tier 1 is strongest (grade S) and requires
+  item level 160, Tier 9 rolls at level 1 (gates: 1/4/8/13/19/35/60/100/160).
+  Values roll uniformly inside the tier's range.
+- **Item grade** is the highest modifier grade among an item's affixes, into
+  the bins `D → C → B → A → AA → AAA → AAAA → AAAAA → S` (`ITEM_GRADES`). An
+  item with no affixes is grade D. Grade drives the loot filter, cleanup,
+  beams and salvage yield.
 - `makeAffix` weights tiers toward the weaker end; high item levels can roll
   the best tiers.
-- Item level = stage of the drop; `merge` carries the highest contributor's
-  item level into the forged unique-family result.
+- Item level = stage of the drop.
 
-### Crafting bench (`crafting.js`)
+### Crafting orbs (`crafting.js`)
 
-Orbs can only be found by defeating enemies (`defeatEnemy` rolls per-tier drops:
-normals and magics have a chance at common orbs, rare leaders drop a regal-tier
-orb, and stage guardians drop two divine-tier orbs). Applying an orb consumes
-one copy plus `gold` (scaling with item level) and mutates in place. The
-deterministic bench costs gold only:
+Orbs can only be found by defeating enemies (`defeatEnemy` rolls per-tier
+drops: normals and magics have a chance at common orbs, rare leaders drop a
+regal-tier orb, and stage guardians drop two divine-tier orbs). Applying an orb
+consumes one copy plus `gold` (scaling with item level) and mutates in place.
+`craftEligibility` enforces each rule; invalid attempts fail without charging:
 
-| Orb | Effect | Base gold cost |
+| Orb | Rule | Base gold cost |
 |---|---|---|
-| Transmutation | normal → magic (1–2 mods) | 20 |
-| Augmentation | +1 mod to magic | 35 |
-| Regal | magic → rare, +1 mod | 90 |
-| Alchemy | normal → rare (full roll) | 110 |
-| Chaos | reroll rare | 150 |
-| Exalted | +1 mod to rare | 240 |
-| Scouring | strip to normal | 30 |
-| Divine | reroll values, keep tiers | 70 |
+| Transmutation | reroll into 1–2 modifiers | 20 |
+| Augmentation | fewer than 2 modifiers → +1 | 35 |
+| Regal | fewer than 4 modifiers → +1 | 90 |
+| Alchemy | fewer than 3 → reroll into 3–6 | 110 |
+| Chaos | more than 3 → reroll into exactly 6 | 150 |
+| Exalted | fewer than 6 → add an open prefix or suffix | 240 |
+| Scouring | remove every explicit modifier | 30 |
+| Divine | reroll every value; keep types & tiers; rerolls implicits | 70 |
 
-**Bench crafting** (deterministic): pick a modifier + tier on a magic/rare
-item; enforces slot caps, duplicate bans, item-level gating, and a price that
-rises with tier and item level. Every successful craft increments
-`state.crafted`, feeding the forge quest.
+The 3-prefix / 3-suffix caps always hold. Orbs never remove a unique power;
+only Divine rerolls implicit base values and variable unique powers. Every
+successful craft increments `state.crafted`, feeding the forge quest.
+
+### Essences (`essences.js`)
+
+Salvaging equipment gives each explicit modifier an independent chance to be
+recovered as an **essence** — one modifier per essence, carrying its exact
+grade and value. Recovery odds fall with grade (40% D → 1% S). The loot
+filter's minimum essence grade makes lower essences vanish during recovery
+instead of entering the pouch.
+
+Applying an essence targets an open prefix/suffix slot, or replaces a weaker
+modifier of the same family (the essence tier must beat the existing tier).
+Slam success also falls with grade (95% D → 15% S); a failed attempt consumes
+the essence and leaves the item unchanged. Identical modifiers stack in the
+pouch (≤512 stacks) and survive saves.
 
 ### Forge & salvage
 
 - **Upgrade**: each rank costs `40·(n+1)` gold and adds 10% of the original implicit stats.
-- **Merge**: 3 unequipped items, same slot + rarity → next rarity (75 gold); retains the highest item level and upgrade rank and rolls new implicits.
-- **Salvage**: gold = `round((2 + 3·rarity + upgrade) · (1 + ilvl·0.25))`; a full
-  48-slot satchel auto-salvages new drops the same way.
+- **Salvage**: gold = `round((2 + 3·grade + uniqueBonus + upgrade) · (1 + ilvl·0.25))`;
+  unique items salvage into gold like any other item, and each explicit
+  modifier gets a chance to be recovered as an essence. A full 48-slot satchel
+  auto-salvages new drops the same way.
+- The old 3-for-1 merge recipe has been removed.
 
 ## Quests
 
 | Quest | Condition | Reward |
 |---|---|---|
 | Into the wild | 10 kills | 150 gold |
-| A sharper edge | 3 forges/merges/crafts | 200 gold |
+| A sharper edge | 3 upgrades/crafts/essences | 200 gold |
 | The forest remembers | 1 guardian | 400 gold |
 
 Claiming is one-time (`state.claimed`) and validated against the live value.
@@ -196,13 +215,13 @@ enemy snapshot) and `set_battle_active` (validated pause/resume mirroring the
 UI control).
 ## Ground loot and customizable filters
 
-`defeatEnemy` and chests call `dropItem`, creating an entry in `groundLoot` rather than placing equipment directly in the inventory. Canvas labels use rarity colors, with beams for rare and unique equipment. Drops auto-collect after 2.4 game seconds while battle is active. Clicking a label or Collect now calls `collectLoot` immediately. Map changes collect outstanding drops first, and pending drops survive saves.
+`defeatEnemy` and chests call `dropItem`, creating an entry in `groundLoot` rather than placing equipment directly in the inventory. Canvas labels use grade colors, with beams for grade B+ and unique equipment. Drops auto-collect after 2.4 game seconds while battle is active. Clicking a label or Collect now calls `collectLoot` immediately. Map changes collect outstanding drops first, and pending drops survive saves.
 
-`loot-filter.js` evaluates minimum rarity, permitted slots, minimum item level, and an OR match across selected affix families; these groups combine with AND. `alwaysShowUnique` bypasses those conditions. The filter gates pickups: unmatched drops convert to gold (the normal salvage value) and are logged separately, while matching drops enter the satchel. Existing inventory items are never processed retroactively. Inventory capacity remains 48 with automatic salvage on overflow.
+`loot-filter.js` evaluates a minimum equipment grade (D–S), permitted slots, minimum item level, and an OR match across selected affix families; these groups combine with AND. A separate minimum essence grade filters which lower essences are recovered from salvage. `alwaysShowUnique` bypasses those conditions. The filter gates pickups: unmatched drops convert to gold (the normal salvage value) and are logged separately, while matching drops enter the satchel. Existing inventory items are never processed retroactively. Inventory capacity remains 48 with automatic salvage on overflow.
 
 ## Eleven-slot gear and implicit stats
 
-Equipment slots: head, neck, shoulder, chest, wrist, hand, belt, leg, foot, leftRing, rightRing. Runic Bands fit either finger and share attack/life implicits and affix pools. `gear.js` defines each slot's damage, armor, and life rates. Each implicit rolls `rate × itemLevel × uniform(0.95, 1.05)`, rounded to one decimal. Rarity does not multiply base stats. All equipped implicits contribute to combat along with explicit modifiers. Each forge rank adds 10% of the original base values; orb/bench crafting changes only explicits. Merging preserves the highest contributor item level (or current stage) and upgrade rank, with a fresh implicit roll. Unique powers work in any applicable slot and do not stack duplicate powers. `UNIQUE_EFFECTS` in `loot.js` holds a pool of named powers per slot — each unique drop rolls one power from its slot's pool, and the item name is `power name + base name`. Powers either carry `stats` (flat or per-item-level bonuses folded into `stats()` like affixes) or a special mechanic applied by id in the engine:
+Equipment slots: head, neck, shoulder, chest, wrist, hand, belt, leg, foot, leftRing, rightRing. Runic Bands fit either finger and share attack/life implicits and affix pools. `gear.js` defines each slot's damage, armor, and life rates. Each implicit rolls `rate × itemLevel × uniform(0.95, 1.05)`, rounded to one decimal. Rarity does not multiply base stats. All equipped implicits contribute to combat along with explicit modifiers. Each forge rank adds 10% of the original base values; orbs and essences change only explicits, while Divine can reroll implicit base values and variable unique rolls. Unique powers work in any applicable slot and do not stack duplicate powers. `UNIQUE_EFFECTS` in `loot.js` holds a pool of named powers per slot — each unique drop rolls one power from its slot's pool, and the item name is `power name + base name`. Powers either carry `stats` (flat or per-item-level bonuses folded into `stats()` like affixes) or a special mechanic applied by id in the engine:
 
 The catalog contains 44 distinct uniques: six each for hand and neck, four for each other gear type. Both fingers share the same four ring uniques. Unique rarity drop chances are unchanged; selection within each slot pool is uniform.
 
@@ -217,7 +236,7 @@ The catalog contains 44 distinct uniques: six each for hand and neck, four for e
 - foot: Windrunner (+45% movement speed), Emberwalk (20% less elemental damage taken), Ghoststep (movement and reach), Dawnmarch (movement, regeneration, and defense)
 - either ring: Ember Signet (fire damage per level, +5% crit), Moonwell (regeneration per level, +12% resistance), Rimecircle (cold damage and critical multiplier), Stormknot (lightning damage and attack speed). Wearing two of the same power uses only the highest-item-level power; both rings still contribute implicits and affixes.
 
-The inventory groups equipped gear into Armor, Hands, and Jewelry. Satchel cards expose inspection, direct equip (either finger for rings), and salvage, with sorting by newest, rarity, item level, or slot. Bulk normal/magic salvage only includes unupgraded non-unique items in the active slot filter. Confirmation snapshots item IDs and displays names and total gold, so later drops are not accidentally included. Individual rare, unique, or upgraded items also require confirmation.
+The equipment panel places eleven slots around a character portrait. The 48-slot bag exposes inspection and a lock toggle; inspection offers equip (either finger for rings) and immediate salvage. Sort by newest, grade, level, or slot. Bulk cleanup snapshots unlocked, unupgraded D/C-grade items in the current filter. `setItemLocked` works for equipped and bag gear. `salvage` enforces locks in the engine, and the optional boolean flag survives local and cloud saves. No salvage confirmation dialog is used.
 
 ## Village and keystone rifts
 
@@ -226,6 +245,14 @@ The inventory groups equipped gear into Armor, Hands, and Jewelry. Satchel cards
 - Keystone drop chances by enemy tier: normal 0.3%, magic 1%, rare 4%, unique 12%. Conditional keystone rarity weights: normal 45%, magic 37%, rare 15.5%, unique 2.5%. They use a separate, paginated pouch and bypass equipment filters.
 - Keystone mod counts: normal 0, magic 1–2, rare 3–4, unique 6 distinct mods. Brutal adds monster damage, Stalwart life, Quickened speed, Crowded pack size, Warded damage reduction, and Ruinous critical chance. Every mod also increases reward item level, quantity, and rarity. Values are shown before portal opening.
 - Opening consumes the keystone and creates one pending portal; entering consumes that portal. The ordinary expedition is suspended separately. Teleporting out or dying ends a rift permanently. The normal return point survives.
-- The 24×18 arena spawns four packs, then Vharos. The next wave is immediate after the last kill. Base monster life/damage are +20%/+10%; the boss additionally has 2.2× life and 1.5× damage. Rifts never advance maxStage or normal guardian achievements. The winner stays in the cleared arena to collect and return.
+- The 24×18 arena spawns four packs, then a randomly selected Riftbound boss. The next wave is immediate after the last kill. Base monster life/damage are +20%/+10%; the boss additionally has 2.2× life and 1.5× damage. Rifts never advance maxStage or normal guardian achievements. The winner stays in the cleared arena to collect and return.
 - Quantity multiplies equipment roll count, with a probabilistic extra roll for the fractional part. Rarity divides the rarity roll by 1 + bonus/100. Item level is keystone level + modifier bonuses. These bonuses do not alter already rolled items.
 - Village and rifts grant no offline farming. An unfinished rift resumes after reload without another portal entry; death, entry, opening, and wave transitions persist immediately in the UI.
+
+### Map variety, bosses and HUD
+
+`MAP_THEMES` defines grove, ruins, marsh and ridge scenery; generated rooms choose oval, cross, terrace or diamond shapes. Every route still visits nine clearings once, with no shortcuts. Existing saved maps retain their terrain and progress.
+
+`BOSSES` defines Thornmaw (roots/slam), Skadi (charge/frost), Gorath (fire/charge), Aeralis (lightning/nova), Nyx (nova/roots), and Korr (slam/lightning). `castBossSkill` snapshots positions and schedules hazards; `hazardHits` handles circles, charge capsules and rings with safe centers. Charges only traverse walkable sight lines. Chill immunity also applies to boss hazards. Boss identity and skill order persist; loading clears pending hazards and resets the cast timer.
+
+`hud-ui.js` renders icon-only modifier buttons beneath player and foe HP bars, with accessible descriptions and inspection links. The map button lives outside the canvas. Loot, progress, death and offline rewards never open event pop-ups; the log and stage objective carry the information. Direct user actions receive inline status feedback. Account/conflict dialogs remain interactive.
