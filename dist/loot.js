@@ -1,3 +1,4 @@
+import {GEAR_SLOTS} from './gear.js';
 // Equipment modifiers modeled on Path of Exile's explicit affixes. Every modifier is
 // either a prefix or a suffix, and either side holds at most three at once. Each affix
 // family defines five tiers (Tier 1 is the strongest and is gated behind a high item
@@ -9,29 +10,31 @@ const T = (...rows) => rows.map(([minLevel, minVal, maxVal]) => ({minLevel, minV
 
 export const AFFIXES = {
   // ---- Prefixes: grant a base statistic ----
-  might: {name: 'Forceful', label: 'attack', stat: 'attack', kind: 'prefix', slots: ['weapon', 'charm'], tiers: T([1,2,4],[4,4,7],[8,6,10],[13,9,14],[19,12,18])},
-  guard: {name: 'Ironbound', label: 'defense', stat: 'defense', kind: 'prefix', slots: ['armor', 'charm'], tiers: T([1,2,4],[4,3,6],[8,5,8],[13,7,11],[19,9,14])},
-  life: {name: 'Vital', label: 'maximum health', stat: 'maxHp', kind: 'prefix', slots: ['armor', 'charm'], tiers: T([1,9,15],[4,15,25],[8,22,36],[13,30,50],[19,40,65])},
-  fire: {name: 'Smoldering', label: 'fire damage', stat: 'fire', kind: 'prefix', slots: ['weapon', 'charm'], tiers: T([1,2,5],[4,4,8],[8,6,12],[13,9,16],[19,12,22])},
-  cold: {name: 'Frostwoven', label: 'cold damage', stat: 'cold', kind: 'prefix', slots: ['weapon', 'charm'], tiers: T([1,2,5],[4,4,8],[8,6,12],[13,9,16],[19,12,22])},
-  lightning: {name: 'Stormforged', label: 'lightning damage', stat: 'lightning', kind: 'prefix', slots: ['weapon', 'charm'], tiers: T([1,2,5],[4,4,8],[8,6,12],[13,9,16],[19,12,22])},
-  fortification: {name: 'Fortified', label: 'defense', stat: 'defense', kind: 'prefix', slots: ['armor'], tiers: T([1,1,3],[4,2,5],[8,3,7],[13,5,9],[19,6,12])},
-  colossus: {name: 'Colossus', label: 'maximum health', stat: 'maxHp', kind: 'prefix', slots: ['armor'], tiers: T([1,6,11],[4,10,18],[8,15,27],[13,21,38],[19,28,50])},
+  might: {name: 'Forceful', label: 'attack', stat: 'attack', kind: 'prefix', slots: ['hand', 'wrist', 'neck'], tiers: T([1,2,4],[4,4,7],[8,6,10],[13,9,14],[19,12,18])},
+  guard: {name: 'Ironbound', label: 'defense', stat: 'defense', kind: 'prefix', slots: GEAR_SLOTS.filter(s=>s!=='hand'), tiers: T([1,2,4],[4,3,6],[8,5,8],[13,7,11],[19,9,14])},
+  life: {name: 'Vital', label: 'maximum health', stat: 'maxHp', kind: 'prefix', slots: GEAR_SLOTS.filter(s=>s!=='hand'), tiers: T([1,9,15],[4,15,25],[8,22,36],[13,30,50],[19,40,65])},
+  fire: {name: 'Smoldering', label: 'fire damage', stat: 'fire', kind: 'prefix', slots: ['hand', 'wrist', 'neck'], tiers: T([1,2,5],[4,4,8],[8,6,12],[13,9,16],[19,12,22])},
+  cold: {name: 'Frostwoven', label: 'cold damage', stat: 'cold', kind: 'prefix', slots: ['hand', 'wrist', 'neck'], tiers: T([1,2,5],[4,4,8],[8,6,12],[13,9,16],[19,12,22])},
+  lightning: {name: 'Stormforged', label: 'lightning damage', stat: 'lightning', kind: 'prefix', slots: ['hand', 'wrist', 'neck'], tiers: T([1,2,5],[4,4,8],[8,6,12],[13,9,16],[19,12,22])},
+  fortification: {name: 'Fortified', label: 'defense', stat: 'defense', kind: 'prefix', slots: ['head', 'shoulder', 'chest', 'belt', 'leg', 'foot'], tiers: T([1,1,3],[4,2,5],[8,3,7],[13,5,9],[19,6,12])},
+  colossus: {name: 'Colossus', label: 'maximum health', stat: 'maxHp', kind: 'prefix', slots: ['head', 'shoulder', 'chest', 'belt', 'leg', 'foot'], tiers: T([1,6,11],[4,10,18],[8,15,27],[13,21,38],[19,28,50])},
   // ---- Suffixes: grant utility, speed and offense ----
-  haste: {name: 'of Haste', label: '% attack speed', stat: 'haste', kind: 'suffix', slots: ['weapon', 'charm'], tiers: T([1,3,6],[4,5,9],[8,8,13],[13,11,17],[19,15,22])},
-  precision: {name: 'of Precision', label: '% critical chance', stat: 'critical', kind: 'suffix', slots: ['weapon', 'charm'], tiers: T([1,2,4],[4,3,6],[8,5,9],[13,7,11],[19,9,15])},
-  swiftness: {name: 'of Swiftness', label: '% movement speed', stat: 'movement', kind: 'suffix', slots: ['armor', 'charm'], tiers: T([1,5,10],[4,8,15],[8,12,20],[13,16,28],[19,22,36])},
-  reach: {name: 'of Reach', label: 'tiles attack range', stat: 'reach', kind: 'suffix', decimals: 1, slots: ['weapon', 'charm'], tiers: T([1,.3,.5],[4,.4,.7],[8,.6,1],[13,.8,1.3],[19,1,1.7])},
-  ferocity: {name: 'of Ruin', label: '% critical strike multiplier', stat: 'criticalMultiplier', kind: 'suffix', slots: ['weapon', 'charm'], tiers: T([1,10,18],[4,14,24],[8,20,32],[13,26,40],[19,34,52])},
-  resist: {name: 'of Warding', label: '% elemental resistance', stat: 'resist', kind: 'suffix', slots: ['armor', 'charm'], tiers: T([1,4,8],[4,6,11],[8,9,15],[13,12,20],[19,16,26])},
-  leech: {name: 'of Leech', label: '% damage leeched as life', stat: 'leech', kind: 'suffix', decimals: 1, slots: ['weapon'], tiers: T([1,1,2],[4,1.5,3],[8,2.5,4],[13,3.5,5.5],[19,5,7])},
-  regeneration: {name: 'of Renewal', label: 'life regenerated / sec', stat: 'regen', kind: 'suffix', decimals: 1, slots: ['armor', 'charm'], tiers: T([1,1,2.5],[4,2,4],[8,3,6],[13,4.5,8],[19,6,10])}
+  haste: {name: 'of Haste', label: '% attack speed', stat: 'haste', kind: 'suffix', slots: ['hand', 'wrist', 'neck'], tiers: T([1,3,6],[4,5,9],[8,8,13],[13,11,17],[19,15,22])},
+  precision: {name: 'of Precision', label: '% critical chance', stat: 'critical', kind: 'suffix', slots: ['hand', 'wrist', 'neck'], tiers: T([1,2,4],[4,3,6],[8,5,9],[13,7,11],[19,9,15])},
+  swiftness: {name: 'of Swiftness', label: '% movement speed', stat: 'movement', kind: 'suffix', slots: GEAR_SLOTS.filter(s=>s!=='hand'), tiers: T([1,5,10],[4,8,15],[8,12,20],[13,16,28],[19,22,36])},
+  reach: {name: 'of Reach', label: 'tiles attack range', stat: 'reach', kind: 'suffix', decimals: 1, slots: ['hand', 'wrist', 'neck'], tiers: T([1,.3,.5],[4,.4,.7],[8,.6,1],[13,.8,1.3],[19,1,1.7])},
+  ferocity: {name: 'of Ruin', label: '% critical strike multiplier', stat: 'criticalMultiplier', kind: 'suffix', slots: ['hand', 'wrist', 'neck'], tiers: T([1,10,18],[4,14,24],[8,20,32],[13,26,40],[19,34,52])},
+  resist: {name: 'of Warding', label: '% elemental resistance', stat: 'resist', kind: 'suffix', slots: GEAR_SLOTS.filter(s=>s!=='hand'), tiers: T([1,4,8],[4,6,11],[8,9,15],[13,12,20],[19,16,26])},
+  leech: {name: 'of Leech', label: '% damage leeched as life', stat: 'leech', kind: 'suffix', decimals: 1, slots: ['hand', 'wrist'], tiers: T([1,1,2],[4,1.5,3],[8,2.5,4],[13,3.5,5.5],[19,5,7])},
+  regeneration: {name: 'of Renewal', label: 'life regenerated / sec', stat: 'regen', kind: 'suffix', decimals: 1, slots: GEAR_SLOTS.filter(s=>s!=='hand'), tiers: T([1,1,2.5],[4,2,4],[8,3,6],[13,4.5,8],[19,6,10])}
 };
 export const UNIQUE_EFFECTS = {
-  weapon: {name: 'Dawn’s Echo', description: 'Every fourth basic attack strikes twice.', id: 'echo'},
-  armor: {name: 'Last Light', description: 'Take 25% less damage while below 35% health.', id: 'lastLight'},
-  charm: {name: 'Wildheart', description: 'Healing skills also restore an extra 15% maximum health.', id: 'wildheart'}
+  hand: {name: 'Dawn’s Echo', description: 'Every fourth basic attack strikes twice.', id: 'echo'},
+  chest: {name: 'Last Light', description: 'Take 25% less damage while below 35% health.', id: 'lastLight'},
+  neck: {name: 'Wildheart', description: 'Healing skills also restore an extra 15% maximum health.', id: 'wildheart'}
 };
+
+for(const slot of GEAR_SLOTS) UNIQUE_EFFECTS[slot] ||= UNIQUE_EFFECTS[['wrist'].includes(slot)?'hand':['belt','foot'].includes(slot)?'neck':'chest'];
 
 export const tierOf = (def, tier) => def.tiers[Math.max(0, Math.min(def.tiers.length - 1, def.tiers.length - (tier | 0)))];
 

@@ -26,7 +26,7 @@ export function updateExpedition(s){
   const m=s.map,e=s.enemy,p=stats(s),t=ENEMY_TIERS[e.tier];
   const drops=s.groundLoot||[],visible=drops.filter(d=>matchesLootFilter(d.item,s.lootFilter)).length;
   $('loot-filter-summary').textContent=lootFilterSummary(s.lootFilter);
-  $('ground-loot-count').textContent=drops.length?`${visible} visible · ${drops.length-visible} hidden · auto-collecting`:'Tap a loot label to collect early';
+  $('ground-loot-count').textContent=drops.length?`${visible} kept · ${drops.length-visible} → gold`:'Tap a loot label to collect early';
   $('collect-ground').hidden=!drops.length;
   $('battle-overlay').classList.toggle('cleared-overlay',m.completed);
   const percent=Math.min(100,Math.round(m.progress/m.goal*100)),remaining=s.enemies.filter(x=>!x.boss&&x.hp>0).length;

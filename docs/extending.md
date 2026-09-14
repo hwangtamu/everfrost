@@ -8,10 +8,10 @@ All content is data-driven. There is no build step: edit the ES modules in
 `dist/loot.js`, `AFFIXES`:
 
 ```js
-// A new prefix usable by weapons and charms, 5 tiers.
+// A new prefix usable by hand, wrist and neck gear, 5 tiers.
 arcane: {
   name: 'Arcane', label: 'spell damage', stat: 'arcane',   // key of a stats() bonus
-  kind: 'prefix', slots: ['weapon', 'charm'],
+  kind: 'prefix', slots: ['hand', 'wrist', 'neck'],
   tiers: T([1, 3, 6], [4, 5, 9], [8, 8, 13], [13, 11, 17], [19, 15, 22]),
 },
 ```
@@ -92,7 +92,7 @@ UI status chip in `combat-statuses` (expedition-ui `updateExpedition`).
 
 ```js
 {id:'warden', name:'The long watch', description:'Clear 3 expeditions',
- target:3, value:s => s.bosses, gold:600, shards:25},
+ target:3, value:s => s.bosses, gold:600},
 ```
 
 `value(s)` reads any live counter (`kills`, `crafted`, `bosses`, …). The
@@ -103,7 +103,7 @@ journal, quest preview and claim logic need no other changes.
 `dist/crafting.js`, `CRAFT_OPERATIONS`:
 
 ```js
-mirror: {name:'Orb of Mirrors', flavor:'Duplicates the target item.', icon:'star', gold:9999, shards:999},
+mirror: {name:'Orb of Mirrors', flavor:'Duplicates the target item.', icon:'star', gold:9999},
 ```
 
 Implement the mutation branch in `craft(s, item, opId, rng)`, add its

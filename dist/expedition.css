@@ -30,6 +30,7 @@
 .craft-orb:hover:not(:disabled){border-color:var(--gold);background:#213526}
 .craft-orb>.icon{width:19px;height:19px;color:var(--gold);flex-shrink:0}
 .craft-orb strong{display:block;font-size:12px;font-weight:500;line-height:1.35}
+.craft-orb strong b{display:inline-block;margin-left:6px;min-width:19px;padding:1px 5px;border:1px solid #c9a55f55;border-radius:8px;background:#221a10;color:#e0c98a;font-size:10px;line-height:1.4;flex-shrink:0}
 .craft-orb small{display:flex;align-items:center;gap:4px;font-size:10px;color:#8fa287;margin-top:5px;flex-wrap:wrap}
 .craft-orb small .icon{width:10px;height:10px;color:#c2a55f}
 .craft-orb:disabled{opacity:.45}
@@ -63,3 +64,7 @@
 .mod-def li b{text-align:right;color:#d9cfa8;font-weight:500;font-variant-numeric:tabular-nums}
 @media(max-width:1200px){.craft-orbs{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.bench-row{grid-template-columns:1fr}.bench-pay{justify-content:space-between}.mod-dictionary{grid-template-columns:1fr;max-height:60vh}.craft-preview ul{grid-template-columns:1fr}.craft-orbs{gap:8px}.craft-orb{padding:10px;min-height:58px}}
+
+/* Nine-slot gear stays readable in the hero card and on narrow screens. */
+.equipment-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.equipment-row .equipment-slot{width:100%;min-width:0;height:61px;display:flex;flex-direction:column;justify-content:center;align-items:center;position:relative;gap:3px}.equipment-row .equipment-slot>.icon{width:22px;height:22px}.slot-caption{font-size:10px;color:var(--muted)}.equipment-slot>small{position:absolute;right:4px;top:4px}.filter-row{flex-wrap:wrap}.equipped-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.item-power{flex-wrap:wrap}.implicit-stats{padding:16px;margin:16px 0;border:1px solid var(--line);border-radius:6px;background:#101d1980;text-align:left}.implicit-stats>strong{font:11px var(--sans);letter-spacing:.8px;color:var(--gold);display:block;margin-bottom:12px}.implicit-stats>div{display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:5px 0}.implicit-stats small{color:var(--muted);font-size:10px;font-weight:400}.implicit-stats p{color:var(--muted);font:12px/1.6 var(--sans);margin-top:12px}.item-rarity{line-height:1.6}.filter-checks{flex-wrap:wrap}
+@media(max-width:600px){.equipped-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.equipped-grid .item-tile,.equipped-grid .empty-slot{min-height:190px}.implicit-stats{padding:12px}.implicit-stats>div{font-size:13px}.equipment-row .equipment-slot{min-height:54px}.slot-caption{font-size:11px}}

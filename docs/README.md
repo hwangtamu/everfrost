@@ -29,6 +29,9 @@ game/
 │   ├── crafting.js       PoE-style orb services + deterministic bench
 │   ├── crafting-ui.js    Forge crafting panel markup
 │   ├── combat-ui.js      Live combat attribute panel + equip comparisons
+│   ├── loot-filter.js    Persistent loot-filter rules + matching
+│   ├── loot-filter-ui.js Loot-filter editor form + preview
+│   ├── world-ui.js       Bounded world-map pagination for endless journeys
 │   ├── expedition-ui.js  Guardian progress, dossiers, map overview, item details
 │   ├── renderer.js       Canvas battlefield, camera, minimap, effects
 │   ├── actors.js         Procedural canvas sprites
@@ -37,17 +40,18 @@ game/
 │   ├── expedition.css    Expedition/forge/crafting-specific styles
 │   └── assets/mistwood.png  Generated forest texture
 ├── tests/
-│   ├── engine.test.mjs      14 tests: rules, economy, sanity bounds
-│   ├── expedition.test.mjs  15 tests: maps, combat, loot, migration
-│   └── crafting.test.mjs     7 tests: tiers, orbs, bench, save round-trip
+│   ├── engine.test.mjs       15 tests: rules, economy, sanity bounds
+│   ├── expedition.test.mjs   14 tests: maps, combat, loot, migration
+│   ├── combat-loot.test.mjs   9 tests: attributes, filters, drops, journeys
+│   └── crafting.test.mjs      7 tests: tiers, orbs, bench, save round-trip
 └── .openai/hosting.json    Static hosting manifest (serves dist/)
 ```
 
 ## Design principles
 
 - **DOM-free core.** `engine.js`, `world.js`, `loot.js`, `monsters.js`,
-  `crafting.js` never touch `document`, so the entire rules layer runs under
-  Node's built-in test runner.
+  `crafting.js`, `loot-filter.js` never touch `document`, so the entire rules
+  layer runs under Node's built-in test runner.
 - **Single source of truth for stats.** `stats(s)` / `combatStats(s)` compute
   live combat values once; simulation, character UI and tooltips all share
   them.
@@ -63,5 +67,5 @@ game/
 
 ```sh
 node server.mjs              # http://localhost:5173
-node --test tests/*.test.mjs # run the 36 tests
+node --test tests/*.test.mjs # run the 45 tests
 ```

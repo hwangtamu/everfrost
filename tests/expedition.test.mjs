@@ -1,3 +1,4 @@
+import {GEAR_SLOTS} from '../dist/gear.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateMap,findPath,walkable,seededRandom,distance} from '../dist/world.js';
@@ -123,7 +124,7 @@ test('telegraphed hazards damage inside their radius and can be avoided',()=>{
 
 test('item affixes are distinct, respect prefix/suffix caps and scale with item level',()=>{
   const rng=seededRandom(456);
-  for(const slot of ['weapon','armor','charm'])for(let rarity=0;rarity<4;rarity++)for(let n=0;n<20;n++){
+  for(const slot of GEAR_SLOTS)for(let rarity=0;rarity<4;rarity++)for(let n=0;n<20;n++){
     const affixes=rollAffixes(slot,rarity,8,rng);
     assert.equal(new Set(affixes.map(a=>a.id)).size,affixes.length);
     assert(affixes.every(a=>AFFIXES[a.id].slots.includes(slot)&&a.value>0));
@@ -146,19 +147,19 @@ test('item affixes are distinct, respect prefix/suffix caps and scale with item 
 
 test('affixes and unique powers affect actual hero stats and abilities',()=>{
   const s=createGame(1000,42),base=stats(s);
-  s.equipment.weapon.affixes=[{id:'might',value:8},{id:'haste',value:20},{id:'leech',value:3},{id:'fire',value:5}];
+  s.equipment.hand.affixes=[{id:'might',value:8},{id:'haste',value:20},{id:'leech',value:3},{id:'fire',value:5}];
   assert.equal(stats(s).attack,base.attack+8);assert.equal(stats(s).fire,5);
   assert(stats(s).attackInterval<base.attackInterval);assert.equal(stats(s).leech,3);
-  s.equipment.armor.unique='lastLight';s.hp=20;
+  s.equipment.chest.unique='lastLight';s.hp=20;
   assert.equal(hurtHero(s,20,'fire'),15);
-  s.level=3;s.equipment.charm=makeItem('charm',3,1,fixed);s.hp=1;s.effects.chill=3;
+  s.level=3;s.equipment.neck=makeItem('neck',3,1,fixed);s.hp=1;s.effects.chill=3;
   useSkill(s,'mend',fixed);assert.equal(s.effects.chill,0);assert.equal(s.hp,1+stats(s).maxHp*.6);
 });
 
 test('a full inventory salvages guaranteed drops without exceeding capacity',()=>{
-  const s=createGame(1000,42);s.inventory=Array.from({length:48},()=>makeItem('weapon',0));
-  const rare=s.enemies.find(e=>e.tier==='rare'),shards=s.shards;
-  defeatEnemy(s,rare,[],fixed);for(const d of [...s.groundLoot])collectLoot(s,d.id);assert.equal(s.inventory.length,48);assert(s.shards>shards+3);
+  const s=createGame(1000,42);s.inventory=Array.from({length:48},()=>makeItem('hand',0));
+  const rare=s.enemies.find(e=>e.tier==='rare'),gold=s.gold,orbsBefore=Object.values(s.orbs).reduce((a,b)=>a+b,0);
+  defeatEnemy(s,rare,[],fixed);for(const d of [...s.groundLoot])collectLoot(s,d.id);assert.equal(s.inventory.length,48);assert(s.gold>gold&&Object.values(s.orbs).reduce((a,b)=>a+b,0)>orbsBefore);
 });
 
 test('saving preserves the generated map, defeated enemies, exploration and hero position',()=>{
@@ -175,12 +176,12 @@ test('saving preserves the generated map, defeated enemies, exploration and hero
 test('old saves retain character and equipment when moving to linear expeditions',()=>{
   for(const version of [1,2]){
     const storage=memory(),old=createGame(1000,42);old.version=version;old.map.topology='branching';
-    old.gold=567;old.level=7;old.stage=4;old.maxStage=8;old.equipment.weapon.upgrade=3;
+    old.gold=567;old.level=7;old.stage=4;old.maxStage=8;old.equipment.hand.upgrade=3;
     if(version===1){delete old.map;delete old.enemies;for(const i of [...old.inventory,...Object.values(old.equipment)].filter(Boolean))delete i.affixes;}
     const before=stats(old);storage.setItem(SAVE_KEY,JSON.stringify(old));
     const result=loadGame(storage,1001),s=result.state;
     assert.equal(s.gold,567);assert.equal(s.level,7);assert.equal(s.maxStage,8);assert.equal(s.stage,4);
-    assert.equal(s.equipment.weapon.id,old.equipment.weapon.id);assert.equal(s.equipment.weapon.upgrade,3);
+    assert.equal(s.equipment.hand.id,old.equipment.hand.id);assert.equal(s.equipment.hand.upgrade,3);
     assert.deepEqual(stats(s),before);assert.equal(s.map.topology,'linear');
     assert(version===1?result.migrated:result.mapRecovered);
   }
@@ -199,7 +200,7 @@ test('enemy and loot dossiers describe the current rules and escape names',()=>{
   assert(enemyDetails(s).includes('&lt;script&gt;'));assert(!enemyDetails(s).includes('<script>'));
   assert(enemyDetails(s).includes('Guaranteed magic-or-better loot'));
   assert(expeditionOverview(s).includes('one winding trail'));
-  const item=makeItem('weapon',3,1,fixed);
+  const item=makeItem('hand',3,1,fixed);
   assert(itemAffixDetails(item,s).includes('Every fourth basic attack'));
   assert(itemAffixDetails(item,s).includes('If equipped'));
 });

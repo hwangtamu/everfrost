@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,stats,combatStats,enemyStats,tick,useSkill,makeEnemy,makeItem,dropItem,collectLoot,saveGame,loadGame,offlineRewards,region,journey,defeatEnemy,startExpedition} from '../dist/engine.js';
+import {createGame,stats,combatStats,enemyStats,tick,useSkill,makeEnemy,makeItem,dropItem,collectLoot,saveGame,loadGame,offlineRewards,region,journey,defeatEnemy,startExpedition,salvageGold} from '../dist/engine.js';
 import {normalizeLootFilter,matchesLootFilter} from '../dist/loot-filter.js';
 import {combatMetrics,equipmentChanges} from '../dist/combat-ui.js';
 import {worldMapPanel} from '../dist/world-ui.js';
@@ -21,30 +21,30 @@ function memory(){const data=new Map();return {getItem:k=>data.get(k),setItem:(k
 
 test('movement bonuses change distance traveled, and attack speed changes strike count',()=>{
   const slow=scene(),fast=scene();
-  fast.equipment.armor.affixes=[{id:'swiftness',value:50}];
+  fast.equipment.chest.affixes=[{id:'swiftness',value:50}];
   for(const s of [slow,fast])s.player.path=[{x:s.player.x+3,y:s.player.y}];
   const from={x:slow.player.x,y:slow.player.y};tick(slow,.1,fixed);tick(fast,.1,fixed);
   assert(Math.abs(distance(fast.player,from)/distance(slow.player,from)-1.5)<1e-9);
-  const normal=scene(),hasted=scene();hasted.equipment.weapon.affixes=[{id:'haste',value:100}];
+  const normal=scene(),hasted=scene();hasted.equipment.hand.affixes=[{id:'haste',value:100}];
   const a=advance(normal,11).filter(e=>e.type==='hit'),b=advance(hasted,11).filter(e=>e.type==='hit');
   assert.equal(a.length,10);assert.equal(b.length,20);
 });
 
 test('reach changes attack distance and cleave area, while walls stop both',()=>{
-  const normal=scene(3),long=scene(3);long.equipment.weapon.affixes=[{id:'reach',value:2}];
+  const normal=scene(3),long=scene(3);long.equipment.hand.affixes=[{id:'reach',value:2}];
   for(const s of [normal,long])s.attackTimer=10;
   assert(!tick(normal,.1,fixed).some(e=>e.type==='hit'));
   assert(tick(long,.1,fixed).some(e=>e.type==='hit'));
   const cleave=scene(4);assert.equal(useSkill(cleave,'cleave',fixed).length,0);
-  cleave.equipment.weapon.affixes=[{id:'reach',value:2}];assert(useSkill(cleave,'cleave',fixed).some(e=>e.type==='hit'));
-  const blocked=scene(3);blocked.equipment.weapon.affixes=[{id:'reach',value:2}];blocked.attackTimer=10;
+  cleave.equipment.hand.affixes=[{id:'reach',value:2}];assert(useSkill(cleave,'cleave',fixed).some(e=>e.type==='hit'));
+  const blocked=scene(3);blocked.equipment.hand.affixes=[{id:'reach',value:2}];blocked.attackTimer=10;
   blocked.map.tiles[16*blocked.map.width+22]=0;
   assert(!tick(blocked,.1,fixed).some(e=>e.type==='hit'));
   assert.equal(useSkill(blocked,'cleave',fixed).length,0);
 });
 
 test('critical chance and multiplier apply to basic attacks and damaging skills',()=>{
-  const s=scene();s.equipment.weapon.affixes=[{id:'precision',value:50},{id:'ferocity',value:80}];
+  const s=scene();s.equipment.hand.affixes=[{id:'precision',value:50},{id:'ferocity',value:80}];
   s.attackTimer=10;const p=stats(s),hit=tick(s,.1,()=>.5).find(e=>e.type==='hit');
   assert(hit.critical);assert.equal(hit.value,Math.round(p.attack*p.critMultiplier));
   const skill=useSkill(s,'cleave',()=>.5).find(e=>e.type==='hit');
@@ -63,7 +63,7 @@ test('chill, enemy enhancements, and live metrics share the actual combat formul
   assert.equal(enemy.movementSpeed,2.1*1.25);assert.equal(enemy.attackSpeed,(1/2.3)*1.3*1.25);
   assert.equal(enemy.crit,.03+.2);assert.equal(enemy.critMultiplier,2);
   assert.equal(combatMetrics(s).find(m=>m.id==='multiplier').value,'180%');
-  const item=makeItem('weapon',0);item.affixes=[{id:'reach',value:.5},{id:'precision',value:3},{id:'ferocity',value:15}];
+  const item=makeItem('hand',0);item.affixes=[{id:'reach',value:.5},{id:'precision',value:3},{id:'ferocity',value:15}];
   const changes=equipmentChanges(item,s);
   assert.equal(changes.find(c=>c.label==='Attack range').delta,.5);
   assert.equal(changes.find(c=>c.label==='Critical strike chance').delta,3);
@@ -72,39 +72,40 @@ test('chill, enemy enhancements, and live metrics share the actual combat formul
 
 test('offline rewards respond to movement speed and critical damage',()=>{
   const base=createGame(1000,42),fast=structuredClone(base),crit=structuredClone(base);
-  fast.equipment.armor.affixes=[{id:'swiftness',value:100}];
-  crit.equipment.weapon.affixes=[{id:'precision',value:50},{id:'ferocity',value:100}];
+  fast.equipment.chest.affixes=[{id:'swiftness',value:100}];
+  crit.equipment.hand.affixes=[{id:'precision',value:50},{id:'ferocity',value:100}];
   const ordinary=offlineRewards(base,3601000);
   assert(offlineRewards(fast,3601000).gold>ordinary.gold);assert(offlineRewards(crit,3601000).gold>ordinary.gold);
 });
 
 test('loot filter combines rarity, slot, level, and any selected modifier with an optional unique override',()=>{
-  const filter=normalizeLootFilter({minRarity:2,slots:['weapon'],minItemLevel:10,affixes:['reach','haste']});
-  const item=makeItem('weapon',2,10,fixed);item.affixes=[{id:'reach',value:.5}];
+  const filter=normalizeLootFilter({minRarity:2,slots:['hand'],minItemLevel:10,affixes:['reach','haste']});
+  const item=makeItem('hand',2,10,fixed);item.affixes=[{id:'reach',value:.5}];
   assert(matchesLootFilter(item,filter));
-  assert(!matchesLootFilter({...item,rarity:1},filter));assert(!matchesLootFilter({...item,slot:'armor'},filter));
+  assert(!matchesLootFilter({...item,rarity:1},filter));assert(!matchesLootFilter({...item,slot:'chest'},filter));
   assert(!matchesLootFilter({...item,itemLevel:9},filter));assert(!matchesLootFilter({...item,affixes:[]},filter));
-  const unique=makeItem('charm',3,1,fixed);assert(matchesLootFilter(unique,filter));
+  const unique=makeItem('neck',3,1,fixed);assert(matchesLootFilter(unique,filter));
   assert(!matchesLootFilter(unique,{...filter,alwaysShowUnique:false}));
-  assert.deepEqual(normalizeLootFilter({slots:['weapon','weapon','bad'],affixes:['bad']} ).slots,['weapon']);
+  assert.deepEqual(normalizeLootFilter({slots:['hand','hand','bad'],affixes:['bad']} ).slots,['hand']);
 });
 
-test('drops stay on the ground before pickup; hidden loot is kept unless auto-salvage is selected',()=>{
-  const s=scene(),item=makeItem('weapon',0),count=s.inventory.length;
+test('drops stay on the ground before pickup; hidden drops convert to gold, visible ones are kept',()=>{
+  const s=scene(),item=makeItem('hand',0),count=s.inventory.length,gold=s.gold;
   s.lootFilter=normalizeLootFilter({minRarity:2});dropItem(s,item,s.player);
   assert.equal(s.groundLoot.length,1);assert.equal(s.inventory.length,count);
   advance(s,1);assert.equal(s.groundLoot.length,1);
-  advance(s,1.5);assert.equal(s.groundLoot.length,0);assert.equal(s.inventory.length,count+1);
+  advance(s,1.5);assert.equal(s.groundLoot.length,0);
+  assert.equal(s.inventory.length,count);assert.equal(s.gold,gold+salvageGold(item)); // below filter -> gold
   assert(!collectLoot(s,item.id));
-  s.lootFilter.salvageHidden=true;const spare=makeItem('weapon',0),shards=s.shards;
-  dropItem(s,spare,s.player);assert(collectLoot(s,spare.id));assert.equal(s.shards,shards+2);assert.equal(s.inventory.length,count+1);
-  const unique=makeItem('charm',3,1,fixed);dropItem(s,unique,s.player);collectLoot(s,unique.id);
+  const rare=makeItem('hand',2),before=s.inventory.length;
+  dropItem(s,rare,s.player);assert(collectLoot(s,rare.id));assert.equal(s.inventory.length,before+1);
+  const unique=makeItem('neck',3,1,fixed);dropItem(s,unique,s.player);collectLoot(s,unique.id);
   assert(s.inventory.some(i=>i.id===unique.id));
 });
 
 test('pending drops and filter settings survive reload and map changes without duplicates',()=>{
-  const s=createGame(1000,42),storage=memory(),item=makeItem('armor',1,1,fixed);
-  s.lootFilter=normalizeLootFilter({minRarity:1,affixes:['swiftness']});dropItem(s,item,s.player);
+  const s=createGame(1000,42),storage=memory(),item=makeItem('chest',1,1,fixed);
+  s.lootFilter=normalizeLootFilter({minRarity:1});dropItem(s,item,s.player);
   saveGame(s,storage,1000);const copy=loadGame(storage,1001).state;
   assert.equal(copy.groundLoot[0].id,item.id);assert.deepEqual(copy.lootFilter,s.lootFilter);
   const before=copy.inventory.length;startExpedition(copy,99);

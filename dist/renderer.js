@@ -38,7 +38,7 @@ export class Battlefield{
   constructor(canvas,getState,onMove,onLoot){
     this.canvas=canvas;this.ctx=canvas.getContext('2d');this.getState=getState;this.onMove=onMove;
     this.time=0;this.last=0;this.floats=[];this.effects=[];this.swing=0;this.hitTimes=new Map();this.camera={x:0,y:0};this.lootHitboxes=[];
-    this.texture=new Image();this.texture.onload=()=>{this.terrainSeed=null;};this.texture.src='/assets/mistwood.png';
+    this.texture=new Image();this.texture.onload=()=>{this.terrainSeed=null;};this.texture.src='./assets/mistwood.png';
     canvas.addEventListener('pointerdown',event=>{
       const r=canvas.getBoundingClientRect(),s=getState();
       const screenX=event.clientX-r.left,screenY=event.clientY-r.top;

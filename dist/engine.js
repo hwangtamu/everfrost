@@ -1,7 +1,9 @@
+import {GEAR,GEAR_SLOTS,LEGACY_SLOTS,canonicalSlot,rollImplicits,implicitStats,migrateGear} from './gear.js';
 import {generateMap, seededRandom, distance, walkable, findPath, moveAlong, reveal, hasLineOfSight} from './world.js';
 import {AFFIXES, UNIQUE_EFFECTS, rollAffixes, affixBonuses, lootRarity} from './loot.js';
 import {ENEMY_TIERS, MODIFIERS, rollModifiers} from './monsters.js';
 import {normalizeLootFilter,matchesLootFilter} from './loot-filter.js';
+import {CRAFT_OPERATIONS} from './crafting.js';
 
 // Keep the original storage key so existing characters migrate in place.
 export const SAVE_KEY = 'everfrost.save.v1';
@@ -12,12 +14,14 @@ export const REGIONS = [
   {name:'The Starless Wild', subtitle:'Beyond the edge of every map.', start:16, color:'#aa97cc', foes:['Void Stalker','Moon Wraith','Dusk Serpent'], boss:'The Forgotten One'}
 ];
 export const SKILLS = [
-  {id:'cleave', name:'Runic cleave', icon:'swords', key:'1', level:1, cooldown:9, description:'Deal 3× weapon damage within your attack range + 1.1 tiles. Each target can be critically struck.'},
+  {id:'cleave', name:'Runic cleave', icon:'swords', key:'1', level:1, cooldown:9, description:'Deal 3× attack damage within your attack range + 1.1 tiles. Each target can be critically struck.'},
   {id:'mend', name:'Forest blessing', icon:'leaf', key:'2', level:3, cooldown:18, description:'Restore 45% of your maximum health and remove chill.'},
   {id:'storm', name:'Thunderstrike', icon:'zap', key:'3', level:5, cooldown:25, description:'Strike visible enemies within 6 tiles for 5× attack as lightning damage. Each target can be critically struck.'}
 ];
-const NAMES = {weapon:['Iron Longsword','Warden’s Blade','Moonsteel Edge','Dawnbreaker'],armor:['Traveler’s Tunic','Ranger’s Mail','Runebound Armor','Vestment of Dawn'],charm:['Carved Antler','Mistwood Talisman','Starlit Pendant','Heart of the Wild']};
 const id = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+// Crafting orbs are a per-type count. They can only be obtained by defeating
+// enemies (see rollOrbs / offlineOrbs); applying one also costs gold.
+const zeroOrbs = () => Object.fromEntries(Object.keys(CRAFT_OPERATIONS).map(k => [k, 0]));
 export const regionIndex = s => Math.floor(((s.stage-1)%20)/5);
 export const journey = s => Math.floor((s.stage-1)/20)+1;
 export const region = s => REGIONS[regionIndex(s)];
@@ -26,12 +30,12 @@ export const BASE_COMBAT = {movementSpeed:5.8, attackInterval:1.1, attackRange:1
 
 export function stats(s) {
   const eq = Object.values(s.equipment), a = affixBonuses(eq);
-  const bonus = slot => eq.filter(x => x?.slot === slot).reduce((n,x) => n + x.power + x.upgrade * 3, 0);
+  const bonus = stat => eq.reduce((n,item) => Math.round((n+(implicitStats(item)[stat]||0))*10)/10,0);
   const attackSpeed = (1 + Math.min(150, a.haste) / 100) / BASE_COMBAT.attackInterval;
   return {
-    attack: 9 + s.level * 3 + bonus('weapon') + s.talents.might * 3 + a.attack,
-    defense: 2 + s.level + bonus('armor') + s.talents.guard * 2 + a.defense,
-    maxHp: 90 + s.level * 15 + bonus('charm') * 3 + s.talents.vigor * 18 + a.maxHp,
+    attack: 9 + s.level * 3 + bonus('attack') + s.talents.might * 3 + a.attack,
+    defense: 2 + s.level + bonus('defense') + s.talents.guard * 2 + a.defense,
+    maxHp: 90 + s.level * 15 + bonus('maxHp') + s.talents.vigor * 18 + a.maxHp,
     crit: Math.min(.75, .08 + s.talents.fortune * .015 + a.critical / 100),
     critMultiplier: Math.min(4, BASE_COMBAT.critMultiplier + a.criticalMultiplier / 100),
     movementSpeed: BASE_COMBAT.movementSpeed * (1 + Math.min(100, a.movement) / 100),
@@ -47,7 +51,7 @@ export function combatStats(s) {
   const p = stats(s), chill = s.effects?.chill > 0 ? .75 : 1;
   p.movementSpeed *= chill; p.attackSpeed *= chill; p.attackInterval = 1 / p.attackSpeed;
   p.averageHit = (p.attack+p.fire+p.cold+p.lightning) * (1+p.crit*(p.critMultiplier-1));
-  p.dps = p.averageHit * p.attackSpeed * (s.equipment.weapon?.unique==='echo'?1.25:1);
+  p.dps = p.averageHit * p.attackSpeed * (Object.values(s.equipment).some(i=>i?.unique==='echo')?1.25:1);
   return p;
 }
 
@@ -70,25 +74,29 @@ export const skillRange = (s,id) => id==='cleave'?stats(s).attackRange+1.1:id===
 export const skillTargets = (s,id) => livingEnemies(s).filter(e=>withinReach(s,s.player,e,skillRange(s,id)));
 
 export function makeItem(slot, rarity = 0, stage = 1, rng = Math.random) {
+  slot=canonicalSlot(slot);
+  if(!GEAR[slot])throw new Error('Unknown gear slot');
+  stage=Number.isSafeInteger(stage)&&stage>0?stage:1;
+  const implicits=rollImplicits(slot,stage,rng);
   const affixes = rollAffixes(slot, rarity, stage, rng);
   const prefix = affixes.find(a => AFFIXES[a.id].kind === 'prefix');
   const suffix = affixes.find(a => AFFIXES[a.id].kind === 'suffix');
-  const name = rarity === 3 ? NAMES[slot][3] : `${prefix ? AFFIXES[prefix.id].name + ' ' : ''}${NAMES[slot][rarity]}${suffix ? ' ' + AFFIXES[suffix.id].name : ''}`;
-  return {id:id(), slot, rarity, name, itemLevel:stage, power:Math.round((slot === 'weapon' ? 4 : 2) + stage * 1.6 + rarity * (5 + stage)), upgrade:0, affixes, unique:rarity === 3 ? UNIQUE_EFFECTS[slot].id : null};
+  const name = rarity === 3 ? UNIQUE_EFFECTS[slot].name+' '+GEAR[slot].name : `${prefix ? AFFIXES[prefix.id].name + ' ' : ''}${GEAR[slot].name}${suffix ? ' ' + AFFIXES[suffix.id].name : ''}`;
+  return {id:id(), slot, rarity, name, itemLevel:stage, implicits, upgrade:0, affixes, unique:rarity === 3 ? UNIQUE_EFFECTS[slot].id : null};
 }
 
 export function createGame(now = Date.now(), seed = Math.floor(Math.random() * 4294967296)) {
   const s = {
-    version:2, name:'Wanderer', level:1, xp:0, gold:120, shards:8, stage:1, maxStage:1,
+    version:3, name:'Wanderer', level:1, xp:0, gold:120, stage:1, maxStage:1,
     killsInStage:0, kills:0, bosses:0, crafted:0, hp:105, auto:true, advance:true, speed:1,
-    inventory:[], equipment:{weapon:makeItem('weapon'),armor:makeItem('armor'),charm:null},
+    inventory:[], orbs:zeroOrbs(), equipment:{...Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null])),hand:makeItem('hand'),chest:makeItem('chest')},
     talents:{might:0,guard:0,vigor:0,fortune:0}, points:0, cooldowns:{cleave:0,mend:0,storm:0},
     enemy:null, enemies:[], attackTimer:0, attackCount:0, respawn:0, log:[], claimed:[],
     lastSave:now, playTime:0, runNumber:0, tierKills:{normal:0,magic:0,rare:0,unique:0},
     settings:{sound:false,motion:true}, hazards:[], effects:{chill:0}, died:false,
     groundLoot:[],lootFilter:normalizeLootFilter()
   };
-  s.inventory = [makeItem('weapon',1), makeItem('charm'), makeItem('armor',1)];
+  s.inventory = [makeItem('hand',1), makeItem('neck'), makeItem('chest',1)];
   startExpedition(s, seed);
   addLog(s,'Explore the connected clearings. Defeat enemies to reveal the stage guardian.','system');
   return s;
@@ -132,9 +140,14 @@ export function startExpedition(s, seed = (Math.floor(Math.random()*4294967296) 
       shared[0] = aura;
       if (shared[1] === aura) shared[1] = 'empowered';
     }
-    const count = tier === 'normal' ? 2 + Math.floor(rng()*2) : tier === 'magic' ? 2 : 3;
+    // Larger packs: normal groups of 4–6, a magic group of 3–5, and a rare
+    // leader with a group of normal minions (5–7 total). Peaks at 37 enemies
+    // per map, safely under the 40-enemy save cap.
+    const count = tier === 'normal' ? 4 + Math.floor(rng()*3) : tier === 'magic' ? 3 + Math.floor(rng()*3) : 5 + Math.floor(rng()*3);
     for (let i = 0; i < count; i++) {
-      const position = {x:room.x + [0,-1,1][i],y:room.y + (i === 2 ? 1 : 0)};
+      // Spread the pack in a 3-wide block around the clearing's center, all
+      // inside the walkable room (rx is 3–4, ry is 2–3).
+      const position = {x:room.x + (i % 3) - 1, y:room.y + Math.floor(i / 3)};
       const actualTier = tier === 'rare' && i > 0 ? 'normal' : tier;
       s.enemies.push(makeEnemy(s, actualTier, position, room.id, rng, actualTier === tier ? shared : []));
     }
@@ -190,14 +203,14 @@ export function effectiveDamage(s, enemy, physical, elemental = 0) {
 }
 
 function giveItem(s,item,events) {
-  if(s.lootFilter?.salvageHidden&&!matchesLootFilter(item,s.lootFilter)){
-    const essence=2+item.rarity*3+item.upgrade;s.shards+=essence;
-    addLog(s,`Filter salvaged ${item.name} · +${essence} essence.`,'salvage');
-    events.push({type:'filteredLoot',item,essence});return;
+  if(s.lootFilter&&!matchesLootFilter(item,s.lootFilter)){
+    const gold=salvageGold(item);s.gold+=gold;
+    addLog(s,`Filter salvaged ${item.name} · +${gold} gold.`,'salvage');
+    events.push({type:'filteredLoot',item,gold});return;
   }
   if (s.inventory.length < 48) {
     s.inventory.unshift(item); events.push({type:'loot',item}); addLog(s,`Found ${item.name}.`,'loot');
-  } else { s.shards += 2 + item.rarity * 3; addLog(s,'Satchel full. New equipment salvaged into essence.','salvage'); }
+  } else { const gold=salvageGold(item); s.gold+=gold; addLog(s,`Satchel full. New equipment salvaged for ${gold} gold.`,'salvage'); }
 }
 
 export function dropItem(s,item,position,events=[]) {
@@ -222,13 +235,46 @@ function advanceLoot(s,dt,events) {
   }
 }
 
+// Crafting orbs only come from defeating foes; higher tiers drop better orbs.
+function rollOrbs(tier, rng) {
+  const common = ['transmute', 'augment'], out = [];
+  if (tier === 'normal' && rng() < .12) out.push(common[Math.floor(rng()*2)]);
+  if (tier === 'magic' && rng() < .40) out.push(['transmute','augment','scour'][Math.floor(rng()*3)]);
+  if (tier === 'rare') {
+    out.push(['regal','alchemy','chaos'][Math.floor(rng()*3)]);
+    if (rng() < .40) out.push(common[Math.floor(rng()*2)]);
+  }
+  if (tier === 'unique') {
+    out.push(['alchemy','chaos','exalt','divine'][Math.floor(rng()*4)]);
+    out.push(['alchemy','chaos','exalt','divine'][Math.floor(rng()*4)]);
+    if (rng() < .50) out.push(common[Math.floor(rng()*2)]);
+  }
+  return out;
+}
+
+// Approximate orb drops across simulated offline kills (common ~1 in 8, rare ~1
+// in 7, divine-tier ~1 in 29).
+function offlineOrbs(kills, rng = Math.random) {
+  const common = ['transmute', 'augment'], out = [];
+  for (let i = 0; i < kills; i++) {
+    if (rng() < .12) out.push(common[Math.floor(rng()*2)]);
+    if (i % 7 === 6) out.push(['regal','alchemy','chaos'][Math.floor(rng()*3)]);
+    if (i % 29 === 28) out.push(['alchemy','chaos','exalt','divine'][Math.floor(rng()*4)]);
+  }
+  return out;
+}
+
 export function defeatEnemy(s,enemy,events = [],rng = Math.random) {
   if (enemy.rewarded) return;
   enemy.hp = 0; enemy.rewarded = true;
   const reward = ENEMY_TIERS[enemy.tier].reward * (1 + enemy.modifiers.length * .15);
   const gold = Math.round((6+s.stage*2) * reward), xp = Math.round((7+s.stage*2) * reward);
   s.gold += gold; s.kills++; s.killsInStage++; s.tierKills[enemy.tier]++;
-  s.shards += enemy.boss ? 6 : enemy.tier === 'rare' ? 3 : 1;
+  for (const orb of rollOrbs(enemy.tier, rng)) {
+    s.orbs[orb] = (s.orbs[orb] || 0) + 1;
+    events.push({type:'orb', orb, name: CRAFT_OPERATIONS[orb].name});
+    addLog(s, `${CRAFT_OPERATIONS[orb].name} dropped.`,'loot');
+  }
   gainXp(s,xp,events); s.hp = Math.min(stats(s).maxHp,s.hp + stats(s).maxHp*.035);
   events.push({type:'kill',gold,xp,boss:enemy.boss,tier:enemy.tier,x:enemy.x,y:enemy.y});
   addLog(s,`${ENEMY_TIERS[enemy.tier].label} ${enemy.name} defeated · +${gold} gold · +${xp} XP`);
@@ -236,7 +282,7 @@ export function defeatEnemy(s,enemy,events = [],rng = Math.random) {
   const quantity = enemy.tier === 'unique' ? 2 : 1;
   if (rng() < dropChance) for (let i = 0; i < quantity; i++) {
     const rarity = lootRarity(enemy.tier,rng);
-    dropItem(s,makeItem(['weapon','armor','charm'][Math.floor(rng()*3)],rarity,s.stage,rng),enemy,events);
+    dropItem(s,makeItem(GEAR_SLOTS[Math.floor(rng()*GEAR_SLOTS.length)],rarity,s.stage,rng),enemy,events);
   }
   if (!enemy.boss) {
     s.map.progress = Math.min(s.map.goal,s.map.progress+enemy.points);
@@ -269,7 +315,7 @@ function strikeEnemy(s,enemy,physical,elemental,events,rng) {
 export function hurtHero(s,amount,element = 'physical',events = [],critical = false) {
   const p = stats(s);
   let damage = element === 'physical' ? Math.max(.2,amount-p.defense*.30) : amount*(1-p.resist/100);
-  if (s.equipment.armor?.unique === 'lastLight' && s.hp < p.maxHp*.35) damage *= .75;
+  if (Object.values(s.equipment).some(i=>i?.unique==='lastLight') && s.hp < p.maxHp*.35) damage *= .75;
   s.hp = Math.max(0,s.hp-damage);
   if (damage >= 1) events.push({type:'hurt',value:Math.ceil(damage),x:s.player.x,y:s.player.y,element,critical});
   return damage;
@@ -308,14 +354,14 @@ function advanceStep(s,dt,events,rng) {
   }
   if (!s.map.chest.opened && distance(player,s.map.chest) < 1.4) {
     s.map.chest.opened = true; s.gold += 20+s.stage*4;
-    dropItem(s,makeItem(['weapon','armor','charm'][Math.floor(rng()*3)],rng()<.2?2:1,s.stage,rng),s.map.chest,events);
+    dropItem(s,makeItem(GEAR_SLOTS[Math.floor(rng()*GEAR_SLOTS.length)],rng()<.2?2:1,s.stage,rng),s.map.chest,events);
     events.push({type:'chest'});
   }
   s.attackTimer = Math.min(s.attackTimer+dt,p.attackInterval+dt);
   if (enemy?.hp > 0 && (!enemy.boss||s.map.bossUnlocked) && withinReach(s,player,enemy,p.attackRange) && s.attackTimer+1e-9 >= p.attackInterval) {
     s.attackTimer = Math.max(0,s.attackTimer-p.attackInterval); s.attackCount++;
     strikeEnemy(s,enemy,p.attack,p.fire+p.cold+p.lightning,events,rng);
-    if (s.equipment.weapon?.unique === 'echo' && s.attackCount%4 === 0 && enemy.hp > 0) strikeEnemy(s,enemy,p.attack,p.fire+p.cold+p.lightning,events,rng);
+    if (Object.values(s.equipment).some(i=>i?.unique==='echo') && s.attackCount%4 === 0 && enemy.hp > 0) strikeEnemy(s,enemy,p.attack,p.fire+p.cold+p.lightning,events,rng);
   }
   for (const e of livingEnemies(s)) {
     if (!e.awakened && withinReach(s,e,player,Math.max(5.5,p.attackRange+1))) e.awakened = true;
@@ -362,25 +408,26 @@ export function useSkill(s,id,rng=Math.random){
   if(id!=='mend'&&!targets.length)return [];
   s.cooldowns[id]=def.cooldown;
   const events=[{type:'skill',id,x:s.player.x,y:s.player.y}];
-  if(id==='mend'){s.hp=Math.min(p.maxHp,s.hp+p.maxHp*(s.equipment.charm?.unique==='wildheart'?.60:.45));s.effects.chill=0;events.push({type:'heal',x:s.player.x,y:s.player.y});}
+  if(id==='mend'){s.hp=Math.min(p.maxHp,s.hp+p.maxHp*(Object.values(s.equipment).some(i=>i?.unique==='wildheart')?.60:.45));s.effects.chill=0;events.push({type:'heal',x:s.player.x,y:s.player.y});}
   else for(const enemy of targets){if(id==='storm')strikeEnemy(s,enemy,0,p.attack*5+p.lightning*5,events,rng);else strikeEnemy(s,enemy,p.attack*3,(p.fire+p.cold+p.lightning)*3,events,rng);}
   if(!s.map.completed)selectTarget(s);
   return events;
 }
 
 export function equip(s,id){const i=s.inventory.findIndex(x=>x.id===id);if(i<0)return false;const item=s.inventory.splice(i,1)[0],old=s.equipment[item.slot];s.equipment[item.slot]=item;if(old)s.inventory.push(old);s.hp=Math.min(s.hp,stats(s).maxHp);return true;}
-export function salvage(s,id){const i=s.inventory.findIndex(x=>x.id===id);if(i<0)return false;const item=s.inventory.splice(i,1)[0];s.shards+=2+item.rarity*3+item.upgrade;return true;}
-export function upgradeCost(item){return {gold:40*(item.upgrade+1),shards:3+item.upgrade*2};}
-export function upgrade(s,slot){const item=s.equipment[slot];if(!item)return false;const cost=upgradeCost(item);if(s.gold<cost.gold||s.shards<cost.shards)return false;s.gold-=cost.gold;s.shards-=cost.shards;item.upgrade++;s.crafted++;return true;}
-export function merge(s,slot,rarity){if(!['weapon','armor','charm'].includes(slot)||!Number.isInteger(rarity)||rarity<0||rarity>2)return false;const items=s.inventory.filter(x=>x.slot===slot&&x.rarity===rarity).slice(0,3);if(items.length<3||s.gold<75)return false;const ids=new Set(items.map(x=>x.id));s.inventory=s.inventory.filter(x=>!ids.has(x.id));const item=makeItem(slot,rarity+1,s.stage);item.itemLevel=Math.max(item.itemLevel,...items.map(x=>x.itemLevel||s.stage));item.power=Math.max(item.power,...items.map(x=>x.power+x.upgrade*3))+3;s.inventory.unshift(item);s.gold-=75;s.crafted++;addLog(s,`Forged ${item.name} from three pieces of equipment.`,'loot');return item;}
+export function salvage(s,id){const i=s.inventory.findIndex(x=>x.id===id);if(i<0)return false;const item=s.inventory.splice(i,1)[0];s.gold+=salvageGold(item);return true;}
+export function salvageGold(item){return Math.round((2+item.rarity*3+item.upgrade)*(1+(item.itemLevel||1)*.25));}
+export function upgradeCost(item){return {gold:40*(item.upgrade+1)};}
+export function upgrade(s,slot){const item=s.equipment[slot];if(!item)return false;const cost=upgradeCost(item);if(s.gold<cost.gold)return false;s.gold-=cost.gold;item.upgrade++;s.crafted++;return true;}
+export function merge(s,slot,rarity){if(!GEAR_SLOTS.includes(slot)||!Number.isInteger(rarity)||rarity<0||rarity>2)return false;const items=s.inventory.filter(x=>x.slot===slot&&x.rarity===rarity).slice(0,3);if(items.length<3||s.gold<75)return false;const ids=new Set(items.map(x=>x.id));s.inventory=s.inventory.filter(x=>!ids.has(x.id));const item=makeItem(slot,rarity+1,Math.max(s.stage,...items.map(x=>x.itemLevel||1)));item.upgrade=Math.max(...items.map(x=>x.upgrade));s.inventory.unshift(item);s.gold-=75;s.crafted++;addLog(s,`Forged ${item.name} from three pieces of equipment.`,'loot');return item;}
 export function learn(s,id){if(s.points<=0||!Object.hasOwn(s.talents,id))return false;s.points--;s.talents[id]++;return true;}
 export function travel(s,stage){if(!Number.isInteger(stage)||stage<1||stage>s.maxStage)return false;s.stage=stage;startExpedition(s);return true;}
 export const QUESTS=[
-  {id:'first',name:'Into the wild',description:'Defeat 10 creatures',target:10,value:s=>s.kills,gold:150,shards:5},
-  {id:'forge',name:'A sharper edge',description:'Upgrade or merge equipment 3 times',target:3,value:s=>s.crafted,gold:200,shards:10},
-  {id:'guardian',name:'The forest remembers',description:'Defeat your first stage guardian',target:1,value:s=>s.bosses,gold:400,shards:15}
+  {id:'first',name:'Into the wild',description:'Defeat 10 creatures',target:10,value:s=>s.kills,gold:150},
+  {id:'forge',name:'A sharper edge',description:'Upgrade or merge equipment 3 times',target:3,value:s=>s.crafted,gold:200},
+  {id:'guardian',name:'The forest remembers',description:'Defeat your first stage guardian',target:1,value:s=>s.bosses,gold:400}
 ];
-export function claimQuest(s,id){const q=QUESTS.find(q=>q.id===id);if(!q||s.claimed.includes(id)||q.value(s)<q.target)return false;s.claimed.push(id);s.gold+=q.gold;s.shards+=q.shards;return true;}
+export function claimQuest(s,id){const q=QUESTS.find(q=>q.id===id);if(!q||s.claimed.includes(id)||q.value(s)<q.target)return false;s.claimed.push(id);s.gold+=q.gold;return true;}
 
 export function offlineRewards(s,now=Date.now()){
   const seconds=Math.min(28800,Math.max(0,(now-s.lastSave)/1000));s.lastSave=now;
@@ -390,9 +437,11 @@ export function offlineRewards(s,now=Date.now()){
   const averageHealth=(18+Math.pow(s.stage,1.18)*6)*1.7;
   const travelTime=3*BASE_COMBAT.movementSpeed/p.movementSpeed;
   const kills=Math.floor(seconds/(averageHealth/dps+travelTime)*.5);
-  const gold=kills*(6+s.stage*2),xp=kills*(7+s.stage*2),shards=Math.floor(kills/3);
-  s.gold+=gold;s.shards+=shards;gainXp(s,xp);s.hp=stats(s).maxHp;s.hazards=[];
-  return {seconds,kills,gold,xp,shards};
+  const gold=kills*(6+s.stage*2),xp=kills*(7+s.stage*2);
+  const orbs=offlineOrbs(kills);
+  for(const orb of orbs)s.orbs[orb]=(s.orbs[orb]||0)+1;
+  s.gold+=gold;gainXp(s,xp);s.hp=stats(s).maxHp;s.hazards=[];
+  return {seconds,kills,gold,xp,orbs};
 }
 
 export function saveGame(s,storage=globalThis.localStorage,now=Date.now()){
@@ -419,16 +468,17 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
   try{
     const raw=storage.getItem(SAVE_KEY);if(!raw)return {state:createGame(now),offline:null};
     const data=JSON.parse(raw);
-    if(![1,2].includes(data.version)||!Number.isInteger(data.level)||data.level<1||!Number.isInteger(data.stage)||data.stage<1||!Array.isArray(data.inventory)||!data.equipment||!data.talents)throw Error('Invalid save');
-    const validItem=i=>i&&typeof i.id==='string'&&typeof i.name==='string'&&['weapon','armor','charm'].includes(i.slot)&&Number.isInteger(i.rarity)&&i.rarity>=0&&i.rarity<=3&&Number.isFinite(i.power)&&i.power>=0&&Number.isInteger(i.upgrade)&&i.upgrade>=0;
-    if(!data.inventory.every(validItem)||!Object.entries(data.equipment).every(([slot,item])=>['weapon','armor','charm'].includes(slot)&&(item===null||(validItem(item)&&item.slot===slot))))throw Error('Invalid equipment');
+    if(![1,2,3].includes(data.version)||!Number.isInteger(data.level)||data.level<1||!Number.isInteger(data.stage)||data.stage<1||!Array.isArray(data.inventory)||!data.equipment||!data.talents)throw Error('Invalid save');
+    const validItem=i=>i&&typeof i.id==='string'&&typeof i.name==='string'&&GEAR_SLOTS.includes(canonicalSlot(i.slot))&&Number.isInteger(i.rarity)&&i.rarity>=0&&i.rarity<=3&&Number.isInteger(i.upgrade)&&i.upgrade>=0;
+    if(!data.inventory.every(validItem)||!Object.entries(data.equipment).every(([slot,item])=>GEAR_SLOTS.includes(canonicalSlot(slot))&&(item===null||(validItem(item)&&item.slot===slot))))throw Error('Invalid equipment');
     if(typeof data.name!=='string'||!data.name.trim()||!Array.isArray(data.log)||!data.log.every(x=>x&&typeof x.text==='string'&&Number.isFinite(x.time))||!Array.isArray(data.claimed))throw Error('Invalid hero');
     if(!['might','guard','vigor','fortune'].every(k=>Number.isInteger(data.talents[k])&&data.talents[k]>=0))throw Error('Invalid mastery');
-    const fresh=createGame(now),s={...fresh,...data,version:2,name:data.name.slice(0,20),settings:{sound:false,motion:true,...data.settings}};
-    for(const key of ['gold','xp','shards','hp','maxStage','kills','points','lastSave','bosses','crafted'])if(!Number.isFinite(s[key])||s[key]<0)throw Error('Invalid save');
+    const fresh=createGame(now),s={...fresh,...data,version:3,name:data.name.slice(0,20),settings:{sound:false,motion:true,...data.settings}};
+    for(const key of ['gold','xp','hp','maxStage','kills','points','lastSave','bosses','crafted'])if(!Number.isFinite(s[key])||s[key]<0)throw Error('Invalid save');
     s.maxStage=Math.max(s.stage,Math.floor(s.maxStage));s.speed=s.speed===2?2:1;s.auto=!!s.auto;s.advance=!!s.advance;s.inventory=s.inventory.slice(0,48);
-    s.equipment={weapon:null,armor:null,charm:null,...s.equipment};
+    s.equipment={...Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null])),...Object.fromEntries(Object.entries(s.equipment).map(([slot,item])=>[canonicalSlot(slot),item]))};
     for(const item of [...s.inventory,...Object.values(s.equipment)].filter(Boolean)){
+      migrateGear(item);
       const rawAffixes=Array.isArray(item.affixes)?item.affixes.filter(a=>a&&AFFIXES[a.id]&&Number.isFinite(a.value)&&a.value>=0):[];
       item.affixes=[];
       for(const a of rawAffixes){
@@ -450,12 +500,15 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
       if(!Object.values(UNIQUE_EFFECTS).some(u=>u.id===item.unique))item.unique=null;
     }
     s.cooldowns={cleave:0,mend:0,storm:0};s.effects={chill:0};s.tierKills={...fresh.tierKills,...data.tierKills};s.runNumber=Number.isInteger(data.runNumber)?data.runNumber:0;
+    s.orbs={...zeroOrbs(),...Object.fromEntries(Object.entries(data.orbs||{}).filter(([k,v])=>CRAFT_OPERATIONS[k]&&Number.isInteger(v)&&v>=0))};
+    delete s.shards;
     s.lootFilter=normalizeLootFilter(data.lootFilter);
     const ownedIds=new Set([...s.inventory,...Object.values(s.equipment)].filter(Boolean).map(i=>i.id));
     s.groundLoot=(Array.isArray(data.groundLoot)?data.groundLoot:[]).filter(d=>{
       if(!d||!validItem(d.item)||d.id!==d.item.id||ownedIds.has(d.id)||!Number.isFinite(d.x)||!Number.isFinite(d.y))return false;
       ownedIds.add(d.id);return true;
     }).slice(0,64).map(d=>({...d,age:Number.isFinite(d.age)?Math.max(0,d.age):0,item:{...d.item,affixes:(Array.isArray(d.item.affixes)?d.item.affixes:[]).filter(a=>a&&AFFIXES[a.id]&&Number.isFinite(a.value)&&a.value>=0)}}));
+    s.groundLoot.forEach(d=>migrateGear(d.item));
     const migrated=data.version===1;
     const restored=!migrated&&restoreMap(s,data);
     if(!restored)startExpedition(s);

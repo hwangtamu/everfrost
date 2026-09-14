@@ -57,7 +57,7 @@
 | `CRAFT_OPERATIONS` | 8 orbs: transmute, augment, regal, alchemy, chaos, exalt, scour, divine |
 | `craft(s, item, opId, rng)` | Apply an orb with cost checks; returns `{ok, reason}` |
 | `benchCraft(s, item, affixId, tier, rng)` | Deterministic bench: chosen modifier at chosen tier |
-| `craftCost`, `benchCost` | Gold/essence pricing scaled by item level |
+| `craftCost`, `benchCost` | Gold pricing scaled by item level; orbs are consumed on use |
 | `craftTarget(s, id)` | Resolve an id to inventory-or-equipped item |
 
 ### Browser layer

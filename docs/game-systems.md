@@ -26,9 +26,9 @@ Base values, then equipment power, then talents and affixes, then caps:
 
 | Stat | Formula (condensed) | Cap |
 |---|---|---|
-| attack | `9 + 3·level + weapon.power+3·upgrade + 3·might + affix.attack` | — |
-| defense | `2 + level + armor.power+3·upgrade + 2·guard + affix.defense` | — |
-| maxHp | `90 + 15·level + 3·(charm.power) + 18·vigor + affix.maxHp` | — |
+| attack | `9 + 3·level + gear.attack + 3·might + affix.attack` | — |
+| defense | `2 + level + gear.defense + 2·guard + affix.defense` | — |
+| maxHp | `90 + 15·level + gear.maxHp + 18·vigor + affix.maxHp` | — |
 | crit | `8% + 1.5%·fortune + affix.critical/100` | 75% |
 | critMultiplier | `1.8 + affix.criticalMultiplier/100` | 4.0× |
 | attackSpeed | `(1 + haste/100) / 1.1` | haste ≤150% |
@@ -37,7 +37,7 @@ Base values, then equipment power, then talents and affixes, then caps:
 | resist / leech / regen | affix-driven | 65% / 15% / — |
 
 `combatStats` layers in chill (−25% speed & attack speed when `effects.chill>0`)
-and computes `averageHit` and `dps` (with the weapon unique "echo" at 125%).
+and computes `averageHit` and `dps` (with the equipped unique "echo" at 125%).
 `equipmentChanges` in combat-ui compares `stats` around an item swap so a
 temporary chill cannot distort an upgrade decision.
 
@@ -58,9 +58,11 @@ temporary chill cannot distort an upgrade decision.
 
 - Encounter rooms are visited in route order; tiers per room:
   - one random room (`2 + rand(3)`) hosts a **rare aura leader** (Guardian,
-    Frenzy, or Burning aura) flanked by two normal minions;
-  - the second room (or 23% of others) is a **magic pack** (1 shared modifier);
-  - the rest are **normal packs** (2–3 enemies).
+    Frenzy, or Burning aura) flanked by a group of 4–6 normal minions
+    (5–7 total);
+  - the second room (or 23% of others) is a **magic pack** of 3–5 magic foes
+    (1 shared modifier);
+  - the rest are **normal packs** of 4–6 enemies.
 - A **unique guardian** always spawns in the boss room with `earthshatter +
   empowered`.
 - Guardian bar: normal kills +1, magic +2, rare +5. Reaching `map.goal` breaks
@@ -91,8 +93,8 @@ testable (`tests` drive `tick(s, .1)` directly).
 
 | Skill | Level | Cooldown | Effect |
 |---|---|---|---|
-| Runic cleave (key 1) | 1 | 9 s | 3× weapon damage, range = attackRange + 1.1 tiles |
-| Forest blessing (key 2) | 3 | 18 s | Heal 45% max HP + remove chill (Wildheart charm → 60%) |
+| Runic cleave (key 1) | 1 | 9 s | 3× attack damage, range = attackRange + 1.1 tiles |
+| Forest blessing (key 2) | 3 | 18 s | Heal 45% max HP + remove chill (Wildheart equipment → 60%) |
 | Thunderstrike (key 3) | 5 | 25 s | 5× attack as lightning, all visible enemies within 6 tiles |
 
 Skills respect cooldowns, unlock levels, and the completed-map state; the UI
@@ -129,18 +131,22 @@ PoE-style rules (added in v2.2):
 
 ### Crafting bench (`crafting.js`)
 
-Orbs charge gold + essence (both scale with item level) and mutate in place:
+Orbs can only be found by defeating enemies (`defeatEnemy` rolls per-tier drops:
+normals and magics have a chance at common orbs, rare leaders drop a regal-tier
+orb, and stage guardians drop two divine-tier orbs). Applying an orb consumes
+one copy plus `gold` (scaling with item level) and mutates in place. The
+deterministic bench costs gold only:
 
-| Orb | Effect | Base cost (gold/essence) |
+| Orb | Effect | Base gold cost |
 |---|---|---|
-| Transmutation | normal → magic (1–2 mods) | 20 / 1 |
-| Augmentation | +1 mod to magic | 35 / 2 |
-| Regal | magic → rare, +1 mod | 90 / 6 |
-| Alchemy | normal → rare (full roll) | 110 / 8 |
-| Chaos | reroll rare | 150 / 12 |
-| Exalted | +1 mod to rare | 240 / 18 |
-| Scouring | strip to normal | 30 / 2 |
-| Divine | reroll values, keep tiers | 70 / 5 |
+| Transmutation | normal → magic (1–2 mods) | 20 |
+| Augmentation | +1 mod to magic | 35 |
+| Regal | magic → rare, +1 mod | 90 |
+| Alchemy | normal → rare (full roll) | 110 |
+| Chaos | reroll rare | 150 |
+| Exalted | +1 mod to rare | 240 |
+| Scouring | strip to normal | 30 |
+| Divine | reroll values, keep tiers | 70 |
 
 **Bench crafting** (deterministic): pick a modifier + tier on a magic/rare
 item; enforces slot caps, duplicate bans, item-level gating, and a price that
@@ -149,20 +155,18 @@ rises with tier and item level. Every successful craft increments
 
 ### Forge & salvage
 
-- **Upgrade**: equipped item +1 level; costs `40·(n+1)` gold and `3+2n`
-  essence; +3 to that slot's base power per level.
-- **Merge**: 3 unequipped items, same slot + rarity → next rarity (75 gold),
-  power inherits the best invested item +3, item level inherits the max.
-- **Salvage**: `2 + 3·rarity + upgrade` essence; a full 48-slot satchel
-  auto-salvages new drops.
+- **Upgrade**: each rank costs `40·(n+1)` gold and adds 10% of the original implicit stats.
+- **Merge**: 3 unequipped items, same slot + rarity → next rarity (75 gold); retains the highest item level and upgrade rank and rolls new implicits.
+- **Salvage**: gold = `round((2 + 3·rarity + upgrade) · (1 + ilvl·0.25))`; a full
+  48-slot satchel auto-salvages new drops the same way.
 
 ## Quests
 
 | Quest | Condition | Reward |
 |---|---|---|
-| Into the wild | 10 kills | 150 gold · 5 essence |
-| A sharper edge | 3 forges/merges/crafts | 200 gold · 10 essence |
-| The forest remembers | 1 guardian | 400 gold · 15 essence |
+| Into the wild | 10 kills | 150 gold |
+| A sharper edge | 3 forges/merges/crafts | 200 gold |
+| The forest remembers | 1 guardian | 400 gold |
 
 Claiming is one-time (`state.claimed`) and validated against the live value.
 
@@ -172,7 +176,8 @@ Claiming is one-time (`state.claimed`) and validated against the live value.
   requires `auto === true` and ≥60 s away.
 - Modeled at **50% combat efficiency**: estimated kill time =
   `averageHealth/DPS + travelTime`, then `kills = floor(elapsed / killTime · 0.5)`.
-- Grants gold, XP (+level-ups), and `floor(kills/3)` essence. **Never advances
+- Grants gold, XP (+level-ups), and randomly rolled orbs (common ~1-in-8
+  simulated kills, regal-tier ~1-in-7, divine-tier ~1-in-29). **Never advances
   maps, stages or quests.**
 
 ## Settings & accessibility
@@ -193,4 +198,8 @@ UI control).
 
 `defeatEnemy` and chests call `dropItem`, creating an entry in `groundLoot` rather than placing equipment directly in the inventory. Canvas labels use rarity colors, with beams for rare and unique equipment. Drops auto-collect after 2.4 game seconds while battle is active. Clicking a label or Collect now calls `collectLoot` immediately. Map changes collect outstanding drops first, and pending drops survive saves.
 
-`loot-filter.js` evaluates minimum rarity, permitted slots, minimum item level, and an OR match across selected affix families; these groups combine with AND. `alwaysShowUnique` bypasses those conditions. Unmatched drops hide their labels but still collect unless `salvageHidden` is enabled. Filter salvage grants the normal essence value and logs it separately. Existing inventory items are never processed retroactively. Inventory capacity remains 48 with automatic salvage on overflow.
+`loot-filter.js` evaluates minimum rarity, permitted slots, minimum item level, and an OR match across selected affix families; these groups combine with AND. `alwaysShowUnique` bypasses those conditions. The filter gates pickups: unmatched drops convert to gold (the normal salvage value) and are logged separately, while matching drops enter the satchel. Existing inventory items are never processed retroactively. Inventory capacity remains 48 with automatic salvage on overflow.
+
+## Nine-slot gear and implicit stats
+
+Equipment slots: head, neck, shoulder, chest, wrist, hand, belt, leg, foot. `gear.js` defines each slot's damage, armor, and life rates. Each implicit rolls `rate × itemLevel × uniform(0.95, 1.05)`, rounded to one decimal. Rarity does not multiply base stats. All equipped implicits contribute to combat along with explicit modifiers. Each forge rank adds 10% of the original base values; orb/bench crafting changes only explicits. Merging preserves the highest contributor item level (or current stage) and upgrade rank, with a fresh implicit roll. Unique powers work in any applicable slot and do not stack duplicate powers.

@@ -1,3 +1,4 @@
+import {GEAR_SLOTS} from '../dist/gear.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {AFFIXES, rollAffixes, makeAffix, affixSlots, canAddAffix, rerollValues, tierOf, affixText} from '../dist/loot.js';
@@ -7,10 +8,10 @@ import {seededRandom} from '../dist/world.js';
 
 const rng = seededRandom(2024);
 function memory() { const data = new Map(); return {getItem: k => data.get(k), setItem: (k, v) => data.set(k, v)}; }
-function rich() { const s = createGame(1000, 1); s.gold = 10000; s.shards = 1000; return s; }
+function rich() { const s = createGame(1000, 1); s.gold = 50000; for (const key of Object.keys(CRAFT_OPERATIONS)) s.orbs[key] = 50; return s; }
 
 test('rarity dictates explicit modifier counts inside prefix and suffix limits', () => {
-  for (const slot of ['weapon', 'armor', 'charm']) for (const rarity of [0, 1, 2, 3]) {
+  for (const slot of GEAR_SLOTS) for (const rarity of [0, 1, 2, 3]) {
     for (let n = 0; n < 60; n++) {
       const affixes = rollAffixes(slot, rarity, 10, rng);
       const prefixes = affixes.filter(a => AFFIXES[a.id].kind === 'prefix');
@@ -45,13 +46,13 @@ test('tiers gate by item level and values stay inside their tier range', () => {
 
 test('crafting orbs follow rarity transitions and charge exact costs once', () => {
   const s = rich();
-  const item = makeItem('weapon', 0, 10);
+  const item = makeItem('hand', 0, 10);
   const cost = craftCost(CRAFT_OPERATIONS.transmute, item);
-  const gold = s.gold, shards = s.shards;
+  const gold = s.gold, orbs = s.orbs.transmute;
   assert(craft(s, item, 'transmute', rng).ok);
   assert.equal(item.rarity, 1);
   assert(item.affixes.length >= 1 && item.affixes.length <= 2);
-  assert.equal(s.gold, gold - cost.gold); assert.equal(s.shards, shards - cost.shards);
+  assert.equal(s.gold, gold - cost.gold); assert.equal(s.orbs.transmute, orbs - 1);
   assert(!craft(s, item, 'transmute', rng).ok); // already magic
 
   const before = item.affixes.length;
@@ -86,7 +87,7 @@ test('crafting orbs follow rarity transitions and charge exact costs once', () =
 
 test('alchemy, full rerolls and bench crafting stay within all caps', () => {
   const s = rich();
-  const item = makeItem('weapon', 0, 12);
+  const item = makeItem('hand', 0, 12);
   assert(craft(s, item, 'alchemy', rng).ok);
   assert.equal(item.rarity, 2);
   const weaponPrefixes = ['might', 'fire', 'cold', 'lightning'];
@@ -100,23 +101,23 @@ test('alchemy, full rerolls and bench crafting stay within all caps', () => {
   assert(id);
 
   const def = AFFIXES[id], cost = benchCost(def, 3, item.itemLevel);
-  const gold = s.gold, shards = s.shards;
+  const gold = s.gold;
   const r = benchCraft(s, item, id, 3, rng);
   assert(r.ok);
   const affix = item.affixes.find(a => a.id === id);
   assert(affix); assert.equal(affix.tier, 3);
   assert.equal(affix.min, def.tiers.at(-3).minVal);
-  assert.equal(s.gold, gold - cost.gold); assert.equal(s.shards, shards - cost.shards);
+  assert.equal(s.gold, gold - cost.gold);
   assert(!benchCraft(s, item, id, 3, rng).ok); // duplicates rejected
-  assert(!benchCraft(s, makeItem('weapon', 1, 3), id, 3, rng).ok); // item level too low
+  assert(!benchCraft(s, makeItem('hand', 1, 3), id, 3, rng).ok); // item level too low
   assert(!benchCraft(s, item, 'resist', 3, rng).ok); // wrong slot for a weapon
 });
 
 test('craftTarget finds equipped and satchel items; craft tracks the forge quest', () => {
   const s = rich();
-  const equipped = s.equipment.weapon;
+  const equipped = s.equipment.hand;
   assert.equal(craftTarget(s, equipped.id), equipped);
-  const pocket = makeItem('charm', 0, 5);
+  const pocket = makeItem('neck', 0, 5);
   s.inventory.unshift(pocket);
   assert.equal(craftTarget(s, pocket.id), pocket);
   assert.equal(craftTarget(s, 'nope'), null);
@@ -127,7 +128,7 @@ test('craftTarget finds equipped and satchel items; craft tracks the forge quest
 
 test('legacy-style and crafted affixes survive the save round trip', () => {
   const storage = memory(), s = rich();
-  const item = makeItem('weapon', 2, 12);
+  const item = makeItem('hand', 2, 12);
   craft(s, item, 'divine', rng);
   item.affixes[0] = {id: item.affixes[0].id, value: 13}; // legacy: no tier, min or max
   s.inventory.unshift(item);
@@ -145,7 +146,7 @@ test('legacy-style and crafted affixes survive the save round trip', () => {
 });
 
 test('divine orb rerolls values but keeps tiers and never exceeds the tier range', () => {
-  const item = makeItem('weapon', 2, 20);
+  const item = makeItem('hand', 2, 20);
   const snapshot = item.affixes.map(a => ({id: a.id, tier: a.tier}));
   const values = new Set();
   for (let i = 0; i < 60; i++) {

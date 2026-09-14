@@ -1,6 +1,6 @@
 # Save format & persistence
 
-Storage: **localStorage**, key `everfrost.save.v1` (kept even at v2 so old
+Storage: **localStorage**, key `everfrost.save.v1` (kept even at v3 so old
 heroes migrate in place). Saves are origin-scoped; local and hosted URLs have
 separate saves. Clearing browser data removes progress.
 
@@ -8,17 +8,17 @@ separate saves. Clearing browser data removes progress.
 
 ```js
 {
-  version: 2,
+  version: 3,
   name: 'Wanderer',            // ≤20 chars
   level: 1, xp: 0,             // xp vs xpRequired(level)
-  gold: 120, shards: 8,        // currency: gold / essence
+  gold: 120, orbs: {transmute:0, augment:0, regal:0, alchemy:0, chaos:0, exalt:0, scour:0, divine:0}, // orbs only drop from kills
   stage: 1, maxStage: 1,       // maxStage gates world-map travel
   killsInStage: 0, kills: 0,   // wave track + lifetime stat
   bosses: 0, crafted: 0,       // quest counters
   hp: 105,                     // current (clamped to current maxHp at load)
   auto: true, advance: true, speed: 1|2,
   inventory: [item...],        // ≤48
-  equipment: {weapon, armor, charm},  // item | null
+  equipment: {head, neck, shoulder, chest, wrist, hand, belt, leg, foot},  // item | null
   talents: {might, guard, vigor, fortune},
   points: 0,
   cooldowns: {cleave, mend, storm},   // never persisted live; always reset to 0
@@ -41,11 +41,11 @@ separate saves. Clearing browser data removes progress.
 ```js
 {
   id,               // crypto.randomUUID()
-  slot: 'weapon'|'armor'|'charm',
+  slot: 'head'|'neck'|'shoulder'|'chest'|'wrist'|'hand'|'belt'|'leg'|'foot',
   rarity: 0-3,      // Normal/Magic/Rare/Unique
   name,             // e.g. "Forceful Iron Longsword of Haste"
   itemLevel,        // stage of the drop / highest merged contributor
-  power,            // base slotted power; +3 per upgrade
+  implicits,        // per-stat base rolls; +10% of base per upgrade
   upgrade: 0..,     // forge level
   affixes: [{id, tier, value, min, max}],  // tier 1 = strongest; min/max from the tier
   unique: 'echo'|'lastLight'|'wildheart'|null
@@ -75,8 +75,9 @@ path** on any violation, which yields a fresh `createGame()` with
    slot, rarity 0–3, finite power ≥0, integer upgrade ≥0).
 3. `name` is non-empty, `log[]` entries have text + finite time, `claimed`
    is an array, talents are non-negative integers.
-4. All numeric resources (`gold, xp, shards, hp, maxStage, kills, points,
-   lastSave, bosses, crafted`) are finite and ≥0.
+4. All numeric resources (`gold, xp, hp, maxStage, kills, points,
+   lastSave, bosses, crafted`) are finite and ≥0; each `orbs[id]` is a
+   non-negative integer.
 5. Then normalization runs (see below) and the map is restored.
 
 ### Map restore validation (`restoreMap`)
@@ -129,4 +130,6 @@ outcome through the sidebar indicator, so the game keeps running without
 persistence.
 ## Combat and loot additions
 
-Combat attributes are derived from equipment, talents, and temporary effects, not independently persisted totals. New `lootFilter` settings default to all rarities and slots, minimum item level 1, no required affixes, unique override on, and automatic filter salvage off. `groundLoot` stores `{ id, item, x, y, age }` for each pending drop. Load validation discards malformed or duplicate pending records and preserves valid items; map changes and offline collection settle pending rewards once. Saves lacking these fields receive their defaults without resetting the character or map.
+Combat attributes are derived from equipment, talents, and temporary effects, not independently persisted totals. New `lootFilter` settings default to all rarities and slots, minimum item level 1, no required affixes, and unique override on; drops that don't match the filter are always converted to gold on pickup. `groundLoot` stores `{ id, item, x, y, age }` for each pending drop. Load validation discards malformed or duplicate pending records and preserves valid items; map changes and offline collection settle pending rewards once. Saves lacking these fields receive their defaults without resetting the character or map.
+
+Version 3 migrates old weapon/armor/charm items into hand/chest/neck gear, preserving IDs, item levels, upgrades, and explicit modifiers. Legacy base stats receive deterministic middle rolls at their existing item level; saved v3 rolls survive reloads unchanged. Ground drops migrate too. Old filter categories expand to the corresponding new slots.
