@@ -21,7 +21,7 @@ const ui = {sheet:null, bagFilter:'all', bagSort:'recent', skillSlot:0, treeZoom
 const $ = id => document.getElementById(id);
 const wide = matchMedia('(min-aspect-ratio: 1/1)');
 const SHEETS = {hero:['Hero','user'], bag:['Bag','bag'], skills:['Skills','zap'], tree:['Passives','nodes'], forge:['Forge','hammer'], world:['World','map']};
-let audioContext, lastHitSound = 0, sheetDirty = false, pendingSalvage = [], pendingConfirm = null;
+let bagWarned = false, audioContext, lastHitSound = 0, sheetDirty = false, pendingSalvage = [], pendingConfirm = null;
 
 // ---------- Small helpers ----------
 const cache = new Map();
@@ -133,7 +133,7 @@ function openSheet(name) {
   ui.sheet = name; $('sheet').hidden = false; document.body.classList.add('sheet-open');
   document.querySelectorAll('#dock button').forEach(b => b.classList.toggle('on', b.dataset.arg === name));
   $('sheet-title').innerHTML = `${icon(SHEETS[name][1])} ${SHEETS[name][0]}`;
-  renderSheet(true); layout();
+  renderSheet(true); layout(); setTimeout(layout, 220);
 }
 function closeSheet() {
   ui.sheet = null; $('sheet').hidden = true; document.body.classList.remove('sheet-open');
@@ -178,9 +178,9 @@ function processEvents(events) {
       case 'hit': if (performance.now() - lastHitSound > 90) { lastHitSound = performance.now(); sound(e.critical ? 260 : 170, .07, 'triangle'); } break;
       case 'skill': sound(520, .16); break;
       case 'kill': kills++; if (e.boss) sound(110, .5, 'sawtooth'); break;
-      case 'level': banner(`Level ${e.value}`, '+1 passive point · +1 skill point', 'gold'); sound(660, .3); skillbarKey = ''; refreshSheet(); break;
+      case 'level': banner(`Level ${e.value}`, '+1 passive point · +1 skill point', 'gold'); sound(660, .3); skillbarKey = ''; refreshSheet(); if (e.value === 2) toast('Points to spend: open Passives and Skills in the dock.', 'gold'); break;
       case 'unlock': toast(`New skill: ${e.name}`, 'gold'); skillbarKey = ''; break;
-      case 'loot': if (e.item.rarity >= 1) feed(`${icon('bag')} <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); if (e.item.rarity >= 3) { toast(`Unique found: ${e.item.name}`, 'gold'); sound(880, .4); } if (ui.sheet === 'bag' || ui.sheet === 'forge') refreshSheet(); dockUpgrades = -1; break;
+      case 'loot': if (state.inventory.length === 48 && !bagWarned) { bagWarned = true; toast('Bag full — new drops are salvaged. Tap Bag to clear it out.'); } if (state.inventory.length < 44) bagWarned = false; if (e.item.rarity >= 1) feed(`${icon('bag')} <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); if (e.item.rarity >= 3) { toast(`Unique found: ${e.item.name}`, 'gold'); sound(880, .4); } if (ui.sheet === 'bag' || ui.sheet === 'forge') refreshSheet(); dockUpgrades = -1; break;
       case 'orb': feed(`${icon('sparkles')} <span class="c2">${esc(e.name)}</span>`); if (ui.sheet === 'forge' || ui.sheet === 'world') refreshSheet(); break;
       case 'keystone': feed(`${icon('portal')} <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); toast('Keystone found — open it in the Village.', 'gold'); persist(); break;
       case 'bossReady': banner('Seal broken', 'The guardian is revealed', 'boss'); sound(140, .5, 'sawtooth'); break;
