@@ -4,7 +4,7 @@ import {createGame,teleportVillage,resumeExpedition,startVillageStage,craftKeyst
 import {makeKeystone,validKeystone,riftBonuses,RIFT_MODIFIERS,rollKeystone} from '../dist/keystones.js';
 import {seededRandom,walkable} from '../dist/world.js';
 import {matchesLootFilter,normalizeLootFilter} from '../dist/loot-filter.js';
-import {villagePanel,keystoneDetails} from '../dist/village-ui.js';
+import {worldPanel,keystoneDetail} from '../dist/panels.js';
 const fixed=()=>.6;
 const memory=()=>{const data=new Map();return {getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v)};};
 function rift(rarity=0,seed=42){const s=createGame(1000,seed);teleportVillage(s);const key=makeKeystone(rarity,1,fixed);s.keystones.push(key);assert(openRiftPortal(s,key.id));assert(enterRift(s,fixed));return s;}
@@ -131,6 +131,8 @@ test('automatic arena combat can finish all waves without teleport or terrain es
 
 test('Village renders the entrance, return portal, keystone recipes and one-use rules',()=>{
  const s=rift(0);teleportVillage(s);const key=makeKeystone(3);s.keystones.push(key);
- const html=villagePanel(s);assert.match(html,/Expedition entrance/);assert.match(html,/Continue expedition/);assert.match(html,/keystone altar/);assert.match(html,/Orb of Transmutation/);
- assert.match(keystoneDetails(key),/One entry/);assert.match(keystoneDetails(key),/Item quantity/);assert.match(keystoneDetails(key),/Item rarity/);
+ const html=worldPanel(s,{worldTab:'rifts'});assert.match(html,/In the Village/);assert.match(html,/Resume expedition/);assert.match(html,/Cut a keystone/);assert.match(html,/Transmutation/);
+ assert.match(html,new RegExp('data-act="open-rift" data-arg="'+key.id+'" >'));
+ assert.match(keystoneDetail(key),/quantity/);assert.match(keystoneDetail(key),/rarity/);assert.match(keystoneDetail(key),/5 waves/);
+ resumeExpedition(s);assert.match(worldPanel(s,{worldTab:'rifts'}),/data-act="open-rift"[^>]*disabled/);
 });

@@ -124,7 +124,7 @@ export function createGame(now = Date.now(), seed = Math.floor(Math.random() * 4
     inventory:[], orbs:zeroOrbs(), equipment:{...Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null])),hand:makeItem('hand'),chest:makeItem('chest')},
     points:0, skillPoints:0, tree:[], skills:defaultSkills(), mana:43, potion:{charges:BASE_COMBAT.potionCharges,progress:0,lock:0}, deathStreak:0, castLock:0, cooldowns:zeroCooldowns(),
     enemy:null, enemies:[], attackTimer:0, attackCount:0, respawn:0, log:[], claimed:[],
-    lastSave:now, playTime:0, runNumber:0, tierKills:{normal:0,magic:0,rare:0,unique:0},
+    lastSave:now, playTime:0, runNumber:0, riftsCleared:0, tierKills:{normal:0,magic:0,rare:0,unique:0},
     settings:{sound:false,motion:true,autoPotion:true}, hazards:[], effects:{chill:0}, died:false,
     groundLoot:[],lootFilter:normalizeLootFilter(),location:'expedition',returnPortal:false,expedition:null,keystones:[],riftPortal:null,rift:null,lastRift:null
   };
@@ -325,7 +325,7 @@ export function defeatEnemy(s,enemy,events = [],rng = Math.random) {
   if (hasUnique(s,'soulgorge')) s.effects.soulgorge = 6;
   events.push({type:'kill',gold,xp,boss:enemy.boss,tier:enemy.tier,x:enemy.x,y:enemy.y});
   addLog(s,`${ENEMY_TIERS[enemy.tier].label} ${enemy.name} defeated · +${gold} gold · +${xp} XP`);
-  const dropChance = {normal:.30,magic:.70,rare:1,unique:1}[enemy.tier];
+  const dropChance = {normal:.14,magic:.5,rare:1,unique:1}[enemy.tier];
   const bonus=s.location==='rift'?riftBonuses(s.rift.keystone):{quantity:0,rarity:0,itemLevel:0};
   const quantity = rewardQuantity(enemy.tier === 'unique' ? 2 : 1,bonus.quantity,rng);
   if (rng() < dropChance) for (let i = 0; i < quantity; i++) {
@@ -336,7 +336,7 @@ export function defeatEnemy(s,enemy,events = [],rng = Math.random) {
   if(keystone)dropItem(s,keystone,enemy,events);
   if(s.location==='rift'){
     if(enemy.boss){
-      s.rift.status='cleared';s.map.completed=true;s.hazards=[];s.rift.clearedAt=Date.now();
+      s.rift.status='cleared';s.riftsCleared=(s.riftsCleared||0)+1;s.map.completed=true;s.hazards=[];s.rift.clearedAt=Date.now();
       events.push({type:'riftComplete'});addLog(s,'Rift conquered. Collect your spoils and return to the Village.','system');
     }else if(s.enemies.every(e=>e.hp<=0))spawnRiftWave(s,s.rift.wave+1,events,rng);
     return;
@@ -632,10 +632,28 @@ export function learn(s,id){return allocate(s,id);}
 export function travel(s,stage){if(s.location==='rift')return false;if(s.location==='village')return startVillageStage(s,stage);if(!Number.isInteger(stage)||stage<1||stage>s.maxStage)return false;s.stage=stage;startExpedition(s);return true;}
 export const QUESTS=[
   {id:'first',name:'Into the wild',description:'Defeat 10 creatures',target:10,value:s=>s.kills,gold:150},
-  {id:'forge',name:'A sharper edge',description:'Upgrade or merge equipment 3 times',target:3,value:s=>s.crafted,gold:200},
-  {id:'guardian',name:'The forest remembers',description:'Defeat your first stage guardian',target:1,value:s=>s.bosses,gold:400}
+  {id:'forge',name:'A sharper edge',description:'Temper, merge or craft equipment 3 times',target:3,value:s=>s.crafted,gold:200},
+  {id:'guardian',name:'The forest remembers',description:'Defeat your first stage guardian',target:1,value:s=>s.bosses,gold:400},
+  {id:'level10',name:'Seasoned',description:'Reach level 10',target:10,value:s=>s.level,gold:600,orbs:{transmute:3,augment:2}},
+  {id:'stage6',name:'Northern wind',description:'Reach Frostfall Ridge (stage 6)',target:6,value:s=>s.maxStage,gold:800,orbs:{alchemy:1}},
+  {id:'kills500',name:'Reaper of packs',description:'Defeat 500 creatures',target:500,value:s=>s.kills,gold:1500,orbs:{chaos:1}},
+  {id:'tree10',name:'A chosen path',description:'Allocate 10 passive nodes',target:10,value:s=>s.tree.length,gold:1200,orbs:{regal:1}},
+  {id:'rare25',name:'Leader hunter',description:'Defeat 25 rare leaders',target:25,value:s=>s.tierKills.rare,gold:2000,orbs:{alchemy:2}},
+  {id:'stage11',name:'Beneath the ash',description:'Reach Ember Hollow (stage 11)',target:11,value:s=>s.maxStage,gold:2500,orbs:{chaos:2}},
+  {id:'rift1',name:'Beyond the veil',description:'Conquer a rift',target:1,value:s=>s.riftsCleared||0,gold:3000,orbs:{exalt:1}},
+  {id:'forge25',name:'Master smith',description:'Temper, merge or craft 25 times',target:25,value:s=>s.crafted,gold:3000,orbs:{divine:1}},
+  {id:'stage21',name:'The second journey',description:'Reach stage 21',target:21,value:s=>s.maxStage,gold:8000,orbs:{exalt:1,divine:1}},
+  {id:'bosses25',name:'Guardian bane',description:'Defeat 25 guardians',target:25,value:s=>s.bosses,gold:6000,orbs:{chaos:3}},
+  {id:'kills5000',name:'Tide of steel',description:'Defeat 5,000 creatures',target:5000,value:s=>s.kills,gold:20000,orbs:{exalt:2}},
+  {id:'rift5',name:'Riftwalker',description:'Conquer 5 rifts',target:5,value:s=>s.riftsCleared||0,gold:15000,orbs:{divine:2,exalt:1}},
+  {id:'stage41',name:'The third journey',description:'Reach stage 41',target:41,value:s=>s.maxStage,gold:40000,orbs:{exalt:3,divine:3}}
 ];
-export function claimQuest(s,id){const q=QUESTS.find(q=>q.id===id);if(!q||s.claimed.includes(id)||q.value(s)<q.target)return false;s.claimed.push(id);s.gold+=q.gold;return true;}
+export function claimQuest(s,id){
+  const q=QUESTS.find(q=>q.id===id);if(!q||s.claimed.includes(id)||q.value(s)<q.target)return false;
+  s.claimed.push(id);s.gold+=q.gold;
+  for(const [orb,n] of Object.entries(q.orbs||{}))s.orbs[orb]=(s.orbs[orb]||0)+n;
+  return true;
+}
 
 export function offlineRewards(s,now=Date.now()){
   const seconds=Math.min(28800,Math.max(0,(now-s.lastSave)/1000));s.lastSave=now;
@@ -783,6 +801,7 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
       s.skillPoints=Math.max(0,Math.min(s.level-1-spent,Math.floor(Number(data.skillPoints)||0)));
     }
     s.potion={charges:Math.max(0,Math.min(9,Math.floor(Number(data.potion?.charges??BASE_COMBAT.potionCharges))||0)),progress:Math.max(0,Math.min(POTION_KILLS,Number(data.potion?.progress)||0)),lock:0};
+    s.riftsCleared=Number.isSafeInteger(data.riftsCleared)&&data.riftsCleared>0?data.riftsCleared:0;
     s.deathStreak=0;s.castLock=0;s.mana=Number.isFinite(data.mana)&&data.mana>=0?data.mana:fresh.mana;
     for(const key of ['gold','xp','hp','maxStage','kills','points','lastSave','bosses','crafted'])if(!Number.isFinite(s[key])||s[key]<0)throw Error('Invalid save');
     s.maxStage=Math.max(s.stage,Math.floor(s.maxStage));s.speed=s.speed===2?2:1;s.auto=!!s.auto;s.advance=!!s.advance;s.inventory=s.inventory.slice(0,48);

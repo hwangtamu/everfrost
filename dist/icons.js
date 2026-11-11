@@ -34,6 +34,24 @@ const paths={
  feather:'M4 20 18 6 M3 22 6 12c5-13 22-11 14 0L10 20Z',
  info:'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M12 11v6 M12 7v1',
  up:'M12 20V4 M5 11l7-7 7 7',
- download:'M12 3v12 M7 10l5 5 5-5 M3 16v5h18v-5'
+ download:'M12 3v12 M7 10l5 5 5-5 M3 16v5h18v-5',
+ menu:'M4 6h16 M4 12h16 M4 18h16',
+ minus:'M5 12h14',
+ flask:'M9 2h6 M10 2v6L4 19a2 2 0 0 0 2 3h12a2 2 0 0 0 2-3L14 8V2 M7 15h10',
+ loop:'M17 2l4 4-4 4 M3 12V9a3 3 0 0 1 3-3h15 M7 22l-4-4 4-4 M21 12v3a3 3 0 0 1-3 3H3',
+ forward:'M3 5l8 7-8 7Z M13 5l8 7-8 7Z',
+ skull:'M12 2a8 8 0 0 0-8 8c0 3 1.5 5 3 6v4h10v-4c1.5-1 3-3 3-6a8 8 0 0 0-8-8Z M9 11v1 M15 11v1 M10 20v-2 M14 20v-2',
+ portal:'M12 3c-4 0-7 4-7 9s3 9 7 9 7-4 7-9-3-9-7-9Z M12 7c-2 0-3 2-3 5s1 5 3 5 3-2 3-5-1-5-3-5Z',
+ nodes:'M12 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z M5 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z M19 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z M12 7v5 M12 12l-6 5 M12 12l6 5',
+ trash:'M4 7h16 M9 7V4h6v3 M6 7l1 14h10l1-14',
+ filter:'M3 5h18l-7 8v6l-4 2v-8Z',
+ helm:'M5 14v-3a7 7 0 0 1 14 0v3 M5 14h14v4h-5v-4 M5 18h5v-4 M12 4v6',
+ armor:'M7 3 3 6l2 5v10h14V11l2-5-4-3-2 3h-6Z M12 6v15',
+ boots:'M7 3v11l-3 4v3h9v-3l5 1v2h3v-5l-8-3V3Z',
+ belt:'M2 9h20v6H2Z M9 8v8h6V8Z M12 11v2',
+ legs:'M6 3h12l1 18h-5l-2-11-2 11H5Z',
+ shoulder:'M3 14a9 9 0 0 1 18 0v3H3Z M8 17v-4 M16 17v-4 M12 5v12',
+ bracer:'M7 4h10l-1 16H8Z M7.5 9h9 M8 15h8',
+ amulet:'M5 3c0 6 3 9 7 9s7-3 7-9 M12 12l-3 4 3 5 3-5Z'
 };
 export function icon(name,cls=''){return `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]||paths.sparkles}"/></svg>`;}

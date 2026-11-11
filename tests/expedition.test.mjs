@@ -5,7 +5,7 @@ import {generateMap,findPath,walkable,seededRandom,distance} from '../dist/world
 import {createGame,tick,stats,startExpedition,defeatEnemy,effectiveDamage,activeAuras,hurtHero,useSkill,movePlayer,saveGame,loadGame,SAVE_KEY,makeItem,makeEnemy,collectLoot} from '../dist/engine.js';
 import {AFFIXES,rollAffixes,lootRarity,UNIQUE_EFFECTS,uniquesForSlot,uniqueBonuses} from '../dist/loot.js';
 import {MODIFIERS} from '../dist/monsters.js';
-import {enemyDetails,expeditionOverview,itemAffixDetails} from '../dist/expedition-ui.js';
+import {enemyDossier,itemDetail} from '../dist/panels.js';
 
 const fixed=()=>.6;
 function memory(){const data=new Map();return {getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v)};}
@@ -197,12 +197,13 @@ test('map reroll keeps permanent progression but resets the expedition',()=>{
 
 test('enemy and loot dossiers describe the current rules and escape names',()=>{
   const s=createGame(1000,42);s.enemy=s.enemies.find(e=>e.tier==='rare');s.enemy.name='<script>bad</script>';
-  assert(enemyDetails(s).includes('&lt;script&gt;'));assert(!enemyDetails(s).includes('<script>'));
-  assert(enemyDetails(s).includes('Guaranteed magic-or-better loot'));
-  assert(expeditionOverview(s).includes('one winding trail'));
+  assert(enemyDossier(s).includes('&lt;script&gt;'));assert(!enemyDossier(s).includes('<script>'));
+  for(const mod of s.enemy.modifiers)assert(enemyDossier(s).includes(MODIFIERS[mod].name));
   const item=makeItem('hand',3,1,fixed);
-  assert(itemAffixDetails(item,s).includes(UNIQUE_EFFECTS[item.unique].description));
-  assert(itemAffixDetails(item,s).includes('If equipped'));
+  const esc=t=>t.replace(/’/g,'’').replace(/'/g,'&#39;');
+  assert(itemDetail(s,item).includes(esc(UNIQUE_EFFECTS[item.unique].description)));
+  assert(itemDetail(s,item).includes('vs hand'));assert(itemDetail(s,item).includes('data-act="equip"'));
+  assert(!itemDetail(s,item,{equipped:true}).includes('data-act="salvage"'));
 });
 
 // Bare unique item: no implicits or affixes, so assertions isolate the power.

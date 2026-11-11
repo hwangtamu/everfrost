@@ -1,248 +1,435 @@
-import {teleportVillage,resumeExpedition,startVillageStage,craftKeystone,openRiftPortal,enterRift} from './engine.js';
-import {villagePanel,keystonePouch,keystoneDetails} from './village-ui.js';
-import {GEAR,GEAR_SLOTS,RING_SLOTS,STAT_LABELS,implicitStats,primaryStat,primaryPower,implicitMarkup} from './gear.js';
-import {equippedPanel,inventoryPanel,equipButtons,salvageCandidates} from './inventory-ui.js';
-import {SAVE_KEY,REGIONS,SKILLS,QUESTS,stats,region,xpRequired,tick,useSkill,equip,salvage,salvageGold,upgrade,upgradeCost,merge,learn,travel,claimQuest,loadGame,saveGame,createGame,offlineRewards,startExpedition,movePlayer,collectLoot,journey} from './engine.js';
+// Browser shell: full-screen battlefield, HUD, slide-over panels, input,
+// persistence and cloud sync. Game rules live in engine.js; panel markup in panels.js.
+import {SAVE_KEY,SKILLS,stats,combatStats,region,journey,xpRequired,tick,useSkill,usePotion,equip,salvage,salvageGold,upgrade,upgradeCost,merge,travel,claimQuest,loadGame,saveGame,createGame,offlineRewards,startExpedition,movePlayer,collectLoot,teleportVillage,resumeExpedition,startVillageStage,craftKeystone,openRiftPortal,enterRift,POTION_KILLS} from './engine.js';
+import {SKILL_BY_ID,skillRank,skillParams,investSkill,chooseRune,slotSkill,resetSkills} from './skills.js';
+import {allocate,respec,respecCost,TREE_BY_ID,TREE_EXTENT} from './tree.js';
+import {GEAR,RING_SLOTS} from './gear.js';
+import {ITEM_RARITIES} from './loot.js';
+import {ENEMY_TIERS,MODIFIERS} from './monsters.js';
+import {craft,benchCraft,CRAFT_OPERATIONS} from './crafting.js';
+import {RIFT_WAVES} from './keystones.js';
+import {normalizeLootFilter} from './loot-filter.js';
 import {CloudSaves,restorePayload} from './cloud-saves.js';
 import {connectAccount} from './firebase.js';
 import {icon} from './icons.js';
-import {Battlefield,drawHero} from './renderer.js';
-import {ITEM_RARITIES} from './loot.js';
-import {combatPanel} from './combat-ui.js';
-import {worldMapPanel} from './world-ui.js';
-import {lootFilterPanel,filterFromForm,updateFilterPreview} from './loot-filter-ui.js';
-import {normalizeLootFilter} from './loot-filter.js';
-import {mountExpedition,updateExpedition,enemyDetails,threatGuide,expeditionOverview,itemAffixDetails,modDictionary} from './expedition-ui.js';
-import {craftingPanel,selectCraftItem,selectBench} from './crafting-ui.js';
-import {craft,benchCraft,craftTarget,CRAFT_OPERATIONS} from './crafting.js';
-const loaded=loadGame();let state=loaded.state;let view=state.location==='village'?'village':'adventure';let keyPage=0;let filter='all';let inventorySort='recent';let pendingSalvage=[];let logMode='loot';let audioContext;
-const $=id=>document.getElementById(id);
-const htmlCache=new Map();
-function markup(id){return {set html(value){if(htmlCache.get(id)!==value){document.getElementById(id).innerHTML=value;htmlCache.set(id,value);}}};}
-const fmt=n=>Math.floor(n).toLocaleString();
-const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const rarityNames=ITEM_RARITIES;const itemIcon=slot=>GEAR[slot].icon;
-function nav(){return [['adventure','compass','Adventure'],['village','tree','Village'],['hero','user','Character'],['inventory','bag','Inventory'],['forge','hammer','Forge'],['journal','book','Journal']].map(([id,i,label])=>`<button class="nav-item ${view===id?'active':''}" data-view="${id}" aria-label="${label}" aria-current="${view===id?'page':'false'}">${icon(i)}<span>${label}</span>${id==='inventory'?'<b id="bag-count" class="nav-badge">3</b>':''}${id==='hero'?'<i id="talent-dot" hidden></i>':''}</button>`).join('');}
-function mount(){
- $('app').innerHTML=`<aside class="sidebar"><button class="brand" data-view="adventure" aria-label="Everfrost home">${icon('tree')}<span>EVERFROST<small>AN IDLE ADVENTURE</small></span></button><div class="nav-caption">YOUR JOURNEY</div><nav aria-label="Main navigation" id="navigation">${nav()}</nav><div class="sidebar-bottom"><div class="chapter-card">${icon('feather')}<small>CHAPTER I</small><strong>A world beyond<br>the familiar.</strong><span>Your legend starts here.</span></div><button class="nav-item" data-action="help">${icon('info')}<span>How to play</span></button><div class="saved-indicator">${icon('check')}<span id="save-status">Progress saved locally</span></div><small class="version">EVERFROST · v2.5</small></div></aside>
- <div class="app-body"><header class="topbar"><div class="breadcrumb">${icon('tree')}<span>The Northern Realms</span><span class="slash">/</span><strong id="breadcrumb-view">Adventure</strong></div><div class="currencies"><span title="Gold · Earned in battle and spent at the forge">${icon('coin')}<b id="gold">120</b></span><span class="orbs" title="Orbs · Dropped by defeated foes; used at the forge">${icon('sparkles')}<b id="orbs">0</b></span></div><button class="button town-teleport" data-view="village" id="town-teleport">${icon('tree')} Village</button><div class="header-actions"><button class="icon-button" data-action="sound" aria-label="Enable sound" id="sound-button">${icon('mute')}</button><button class="icon-button" data-action="settings" aria-label="Settings">${icon('settings')}</button><button class="icon-button" data-action="account" aria-label="Account and cloud saves" id="account-button" title="Account">${icon('user')}</button></div></header>
- <main><section class="page-heading"><div><div class="eyebrow"><span class="small-rule"></span>THE ADVENTURE CONTINUES</div><h1 id="page-title">Into the wild.</h1><p id="page-subtitle">A quiet forest. An unwritten legend. Your next step.</p></div><button class="button map-button" data-action="map">${icon('map')} World map ${icon('arrow')}</button></section>
- <div id="adventure-view"><div class="adventure-layout"><section class="expedition"><div class="section-bar"><div class="region-heading">${icon('compass')}<strong id="region-name">Mistwood</strong><span class="tag">EXPLORING</span></div><button class="text-button" data-action="map" id="stage-label">Stage 1–1 ${icon('down')}</button></div>
- <div class="battlefield" id="battlefield"><canvas id="battle-canvas" aria-label="Live battlefield. Click or tap the clearing to move your hero."></canvas><div class="field-vignette"></div><div class="field-top"><div class="zone-label"><span class="gold-dot"></span><span id="field-location">THE MISTWOOD OUTSKIRTS</span></div><div class="live-label" id="live-label"><i></i> LIVE BATTLE</div></div><div class="enemy-card" id="enemy-card"><div><span id="enemy-name">Mossfang Wolf</span><small id="enemy-level">Lv. 1</small></div><div class="meter enemy-meter"><i id="enemy-hp"></i></div></div><div class="field-health"><div><span>Your health</span><span id="field-hp-text"></span></div><div class="meter health-meter"><i id="field-hp-bar"></i></div></div><div class="field-bottom"><span>${icon('compass')} <span id="field-hint">Tap the clearing to move</span></span><span class="weather">MISTY · 6°C</span></div><div id="battle-overlay" class="battle-overlay" hidden></div></div>
- <div class="encounter-track"><div><span class="status-dot"></span><span id="battle-status">Your hero is fighting</span></div><div class="wave-track" id="wave-track"></div><span id="wave-count">0 / 5</span></div>
- <div class="combat-controls"><button class="button gold-button" data-action="auto" id="auto-button">${icon('pause')} Pause battle</button><button class="speed-button" data-action="speed" title="Change battle speed" id="speed-button">1×</button><label class="switch-label"><input type="checkbox" id="auto-advance" checked><span class="switch"></span>Auto advance</label></div>
- <div class="skills-row" id="skills-row">${SKILLS.map(s=>`<button class="skill-button" data-skill="${s.id}" title="${s.description}"><span class="skill-art ${s.id}">${icon(s.icon)}<kbd>${s.key}</kbd></span><span class="skill-copy"><strong>${s.name}</strong><small id="skill-${s.id}-status">${s.level===1?'Ready':`Unlocks at level ${s.level}`}</small></span><span class="skill-cooldown" id="skill-${s.id}-cooldown"></span></button>`).join('')}</div><div class="idle-note">${icon('leaf')} A little adventure, even when life calls you away.</div></section>
- <aside class="hero-panel" id="hero-panel"></aside></div>
- <div class="bottom-layout"><section class="panel loot-panel"><div class="panel-heading"><h2>${icon('bag')} The spoils of adventure</h2><div class="mini-tabs"><button class="active" data-log="loot">Loot</button><button data-log="combat">Battle log</button></div></div><div id="loot-feed"></div><button class="text-button panel-link" data-view="inventory">Open inventory ${icon('arrow')}</button></section><section class="panel quest-preview" id="quest-preview"></section></div></div>
- <div id="secondary-view" hidden></div><footer><span>${icon('tree')} Every great saga begins with a single step.</span><span id="footer-save">Autosave enabled ${icon('check')}</span></footer></main></div>`;
- mountExpedition();renderHero();update();
+import {Battlefield,drawMinimap} from './renderer.js';
+import {esc,fmt,heroPanel,bagPanel,skillsPanel,treePanel,forgePanel,worldPanel,itemDetail,keystoneDetail,enemyDossier,lootFilterForm,offlineSummary,helpContent,forgeTarget,salvageCandidates,bestComparison,isUpgrade,upgradeCount,claimable} from './panels.js';
+
+const loaded = loadGame();
+let state = loaded.state;
+const ui = {sheet:null, bagFilter:'all', bagSort:'recent', skillSlot:0, treeZoom:.8, treeNode:null, forgeItem:null, forgeTab:'upgrade', benchAffix:null, benchTier:null, worldTab:'map', mapCycle:null};
+const $ = id => document.getElementById(id);
+const wide = matchMedia('(min-aspect-ratio: 1/1)');
+const SHEETS = {hero:['Hero','user'], bag:['Bag','bag'], skills:['Skills','zap'], tree:['Passives','nodes'], forge:['Forge','hammer'], world:['World','map']};
+let audioContext, lastHitSound = 0, sheetDirty = false, pendingSalvage = [], pendingConfirm = null;
+
+// ---------- Small helpers ----------
+const cache = new Map();
+function setText(id, value) { if (cache.get(id) !== value) { cache.set(id, value); $(id).textContent = value; } }
+function setHtml(id, value) { if (cache.get(id) !== value) { cache.set(id, value); $(id).innerHTML = value; } }
+function setStyle(id, prop, value) { const key = id+'|'+prop; if (cache.get(key) !== value) { cache.set(key, value); $(id).style.setProperty(prop, value); } }
+function toast(message, type = 'info') {
+  const el = document.createElement('div'); el.className = `toast ${type}`; el.textContent = message;
+  $('toasts').append(el); while ($('toasts').children.length > 3) $('toasts').firstChild.remove();
+  setTimeout(() => el.remove(), 3200);
 }
-function portrait(){return '<div class="portrait"><canvas id="hero-portrait" width="160" height="150" aria-label="Your knight in green and silver armor"></canvas><span id="portrait-level">1</span></div>';}
-function renderHero(){const p=stats(state);$('hero-panel').innerHTML=`<div class="hero-card"><div class="card-eyebrow">YOUR HERO ${icon('sparkles')}</div>${portrait()}<h2>${esc(state.name)}</h2><p class="hero-class">VANGUARD <span>·</span> LEVEL <b id="hero-level">${state.level}</b></p><div class="hero-bars"><div class="bar-label"><span>${icon('heart')} Health</span><span id="hp-text"></span></div><div class="meter health-meter"><i id="hero-hp"></i></div><div class="bar-label xp-label"><span>Experience</span><span id="xp-text"></span></div><div class="meter xp-meter"><i id="hero-xp"></i></div></div><div class="stat-grid"><div>${icon('sword')}<strong id="attack-stat">${p.attack}</strong><small>Attack</small></div><div>${icon('shield')}<strong id="defense-stat">${p.defense}</strong><small>Defense</small></div><div>${icon('zap')}<strong id="crit-stat">${Math.round(p.crit*100)}%</strong><small>Crit chance</small></div></div><div class="equipment-title"><span>EQUIPPED</span><button class="text-button" data-view="inventory">Manage ${icon('chevron')}</button></div><div class="equipment-row">${Object.entries(state.equipment).map(([slot,item])=>`<button class="equipment-slot rarity-${item?.rarity??0} ${!item?'empty':''}" data-action="equipment" data-slot="${slot}" title="${item?esc(item.name):`Empty ${slot} slot`}" aria-label="${item?esc(item.name):`Empty ${slot} slot`}">${icon(itemIcon(slot))}<span class="slot-caption">${GEAR[slot].label}</span>${item?`<small>${item.upgrade?`+${item.upgrade}`:''}</small>`:'<small>+</small>'}</button>`).join('')}</div><button class="button character-button" data-view="hero">View character ${icon('arrow')}</button></div><div class="camp-note">${icon('clock')}<div><strong>The journey goes on</strong><p>Earn gold and experience while away, for up to 8 hours.</p></div></div>`;const c=$('hero-portrait')?.getContext('2d');if(c)drawHero(c,80,131,1.55);}
-function update(){
- const fieldStats=stats(state);$('field-hp-text').textContent=`${Math.ceil(state.hp)} / ${fieldStats.maxHp}`;$('field-hp-bar').style.width=`${state.hp/fieldStats.maxHp*100}%`;
- const p=stats(state),r=region(state);$('gold').textContent=fmt(state.gold);$('orbs').textContent=fmt(Object.values(state.orbs||{}).reduce((a,b)=>a+b,0));$('bag-count').textContent=state.inventory.length;$('talent-dot').hidden=!state.points;
- $('hero-level').textContent=state.level;$('portrait-level').textContent=state.level;$('hp-text').textContent=`${Math.ceil(state.hp)} / ${p.maxHp}`;$('xp-text').textContent=`${fmt(state.xp)} / ${fmt(xpRequired(state.level))}`;$('hero-hp').style.width=`${state.hp/p.maxHp*100}%`;$('hero-xp').style.width=`${state.xp/xpRequired(state.level)*100}%`;
- $('attack-stat').textContent=p.attack;$('defense-stat').textContent=p.defense;$('crit-stat').textContent=`${Math.round(p.crit*100)}%`;
- $('region-name').textContent=r.name;$('stage-label').innerHTML=`Stage ${state.stage} · Journey ${journey(state)} ${icon('down')}`;$('field-location').textContent=`THE ${r.name.toUpperCase()} ${state.enemy.boss?'SANCTUM':'OUTSKIRTS'}`;$('battlefield').dataset.region=REGIONS.indexOf(r);
- $('enemy-name').textContent=state.enemy.name;$('enemy-level').textContent=`${state.enemy.boss?'BOSS · ':''}Lv. ${state.enemy.level}`;$('enemy-hp').style.width=`${state.enemy.hp/state.enemy.maxHp*100}%`;$('enemy-card').style.opacity=state.enemy.hp>0?'1':'.35';
- $('auto-button').innerHTML=`${icon(state.auto?'pause':'play')} ${state.auto?'Pause battle':'Resume battle'}`;$('speed-button').textContent=`${state.speed}×`;$('auto-advance').checked=state.advance;$('battle-status').textContent=state.auto?(state.respawn>0?'Looking for the next encounter':'Your hero is fighting'):'Resting at camp';markup('live-label').html=state.auto?'<i></i> LIVE BATTLE':'BATTLE PAUSED';$('live-label').classList.toggle('paused',!state.auto);$('battle-overlay').hidden=state.auto;markup('battle-overlay').html=state.auto?'':`<div>${icon('leaf')}<h3>A moment of rest.</h3><p>Ready when you are.</p><button class="button gold-button" data-action="auto">${icon('play')} Resume adventure</button></div>`;
- if(state.location!=='rift')markup('wave-track').html=Array.from({length:5},(_,i)=>`<i class="${i<state.killsInStage?'complete':''} ${state.enemy.boss?'boss-wave':''}">${i===4?icon(state.enemy.boss?'trophy':'star'):''}</i>`).join('');$('wave-count').textContent=state.enemy.boss?'GUARDIAN':`${state.killsInStage} / 5`;
- for(const skill of SKILLS){const lock=state.level<skill.level,cd=state.cooldowns[skill.id];const b=document.querySelector(`[data-skill="${skill.id}"]`);b.disabled=lock||cd>0||state.respawn>0;b.classList.toggle('locked',lock);$('skill-'+skill.id+'-status').textContent=lock?`Unlocks at level ${skill.level}`:cd>0?`Ready in ${Math.ceil(cd)}s`:'Ready to cast';$('skill-'+skill.id+'-cooldown').innerHTML=lock?icon('lock'):cd>0?Math.ceil(cd)+'s':'';}
- const loot=state.log.filter(x=>logMode==='combat'||x.type==='loot'||x.type==='level'||x.type==='salvage').slice(0,3);markup('loot-feed').html=loot.length?loot.map(x=>`<div class="loot-line"><span class="loot-symbol ${x.type}">${icon(x.type==='loot'?'bag':x.type==='level'?'up':'swords')}</span><div><span>${esc(x.text)}</span><small>${x.type==='loot'?'Added to your inventory':x.type==='level'?'Your legend grows':x.type==='salvage'?'Loot filter · converted to gold':region(state).name+' expedition'}</small></div><time>${new Date(x.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time></div>`).join(''):`<div class="empty-loot">${icon('bag')}<div><strong>Good things lie ahead.</strong><p>Found equipment will appear here as you explore.</p></div></div>`;
- const q=QUESTS.find(q=>!state.claimed.includes(q.id));markup('quest-preview').html=q?`<div class="panel-heading"><h2>${icon('book')} A new chapter</h2><span class="subtle">QUEST</span></div><h3>${q.name}</h3><p>${q.description}</p><div class="quest-progress"><div class="meter"><i style="width:${Math.min(100,q.value(state)/q.target*100)}%"></i></div><span>${Math.min(q.value(state),q.target)} / ${q.target}</span></div><div class="quest-bottom"><span>${icon('coin')} ${q.gold} <span class="subtle">reward</span></span><button class="text-button" ${q.value(state)>=q.target?`data-claim="${q.id}"`:'data-view="journal"'}>${q.value(state)>=q.target?'Claim reward':'View journal'} ${icon('arrow')}</button></div>`:`<div class="panel-heading"><h2>${icon('trophy')} A chapter complete</h2></div><h3>The wild remembers you.</h3><p>All chapter quests completed. The northern realms still await.</p>`;
- updateExpedition(state);
- $('town-teleport').innerHTML=icon('tree')+' '+(state.location==='rift'&&!state.map.completed?'Village · leave rift':'Village');
- $('town-teleport').title=state.location==='rift'?'Leaving ends this single-use rift':'Teleport to town; your expedition progress is kept';
- document.querySelectorAll('[data-action="map"], [data-action="reroll-map"]').forEach(b=>b.disabled=state.location==='rift');
- $('auto-advance').disabled=state.location!=='expedition';
- $('auto-button').disabled=state.location==='village'||(state.location==='rift'&&state.map.completed);
+function feed(html, cls = '') {
+  const el = document.createElement('div'); el.className = `feed-line ${cls}`; el.innerHTML = html;
+  $('feed').append(el); while ($('feed').children.length > 5) $('feed').firstChild.remove();
+  setTimeout(() => el.remove(), 4200);
 }
-function toast(message,type='info'){const el=document.createElement('div');el.className=`toast ${type}`;el.innerHTML=`${icon(type==='loot'?'bag':type==='success'?'check':'sparkles')}<span>${esc(message)}</span>`;$('toasts').append(el);setTimeout(()=>el.remove(),4500);}
-function saveLabel(){if(!cloud?.uid)return 'Progress saved locally';
- return {synced:'Synced to your account',syncing:'Syncing to your account…',offline:'Saved on this device · syncs when online',conflict:'Save conflict · open Account',choice:'Choose which progress to keep',unavailable:'Cloud save unavailable · playing locally'}[cloud.status]||'Progress saved locally';}
-function persist(){const now=Date.now();let ok;
- if(cloud?.uid&&cloud.record){state.lastSave=now;ok=cloud.save(JSON.stringify(state));}
- else ok=saveGame(state,undefined,now);
- $('save-status').textContent=ok?saveLabel():'Save unavailable in this browser';$('footer-save').innerHTML=ok?`Autosave enabled ${icon('check')}`:'Progress could not be saved';
- if(cloud?.record?.dirty&&now-lastFlush>15000){lastFlush=now;cloud.flush();}
+let bannerTimer;
+function banner(title, subtitle = '', cls = '') {
+  const el = $('banner'); el.className = `banner show ${cls}`; el.innerHTML = `<strong>${esc(title)}</strong>${subtitle ? `<span>${esc(subtitle)}</span>` : ''}`;
+  clearTimeout(bannerTimer); bannerTimer = setTimeout(() => { el.className = 'banner'; }, 2100);
 }
-let cloud=null,account=null,accountUser=null,lastFlush=0,conflictShown=false;
-function adoptRecord(payload){
- const restored=restorePayload(payload);
- if(restored.recovered){toast('The cloud save could not be read. Your browser save is unchanged.');return;}
- state=restored.state;renderHero();navigate(state.location==='village'?'village':'adventure');update();
- if(restored.offline)setTimeout(()=>showOffline(restored.offline),600);
+function sound(freq = 440, length = .12, type = 'sine') {
+  if (!state.settings.sound) return;
+  try {
+    audioContext ??= new (window.AudioContext || window.webkitAudioContext)(); void audioContext.resume();
+    const o = audioContext.createOscillator(), g = audioContext.createGain();
+    o.type = type; o.frequency.value = freq; g.gain.setValueAtTime(.03, audioContext.currentTime); g.gain.exponentialRampToValueAtTime(.001, audioContext.currentTime + length);
+    o.connect(g).connect(audioContext.destination); o.start(); o.stop(audioContext.currentTime + length);
+  } catch { /* Sound is optional. */ }
 }
-function saveSummary(payload){try{const d=JSON.parse(payload);return `Level ${d.level} · Stage ${d.stage} · ${fmt(d.gold)} gold · ${new Date(d.lastSave||0).toLocaleString([],{dateStyle:'medium',timeStyle:'short'})}`;}catch{return 'Unknown save';}}
-function conflictModal(){conflictShown=true;const remote=cloud.remoteConflict;
- modal('Two versions of your legend',`<p class="dialog-description">This device and the cloud both have newer progress. Choose which one continues — the other is overwritten.</p><div class="conflict-grid"><div><strong>This device</strong><p>${esc(saveSummary(cloud.record?.payload))}</p></div><div><strong>Cloud save</strong><p>${esc(remote?saveSummary(remote.payload):'Unavailable')}</p></div></div><div class="item-actions"><button class="button" data-action="resolve-cloud">Keep cloud save</button><button class="button gold-button" data-action="resolve-local">Keep this device</button></div>`);}
-function accountModal(){
- if(!account){modal('Account',`<p class="dialog-description">Cloud saves are unavailable right now. Your progress stays safe in this browser.</p>`);return;}
- if(!accountUser){modal('Save your legend to the cloud',`<p class="dialog-description">Sign in with Google to keep your progress across devices. This browser's save stays as a local backup.</p><div class="item-actions"><button class="button gold-button" data-action="sign-in">${icon('user')} Sign in with Google</button></div>`);return;}
- if(cloud?.status==='choice'){modal('Bring this device’s progress?',`<p class="dialog-description">Signed in as <strong>${esc(accountUser.email||'Google account')}</strong>. This account has no cloud save yet.</p><div class="conflict-grid"><div><strong>This device</strong><p>${esc(saveSummary(JSON.stringify(state)))}</p></div><div><strong>Fresh start</strong><p>Begin a new legend on this account.</p></div></div><div class="item-actions"><button class="button" data-action="use-fresh-save">Start fresh</button><button class="button gold-button" data-action="use-device-save">Sync this device</button></div>`);return;}
- if(cloud?.status==='conflict'){conflictModal();return;}
- modal('Your account',`<div class="save-info">${icon('user')}<div><strong>${esc(accountUser.email||'Google account')}</strong><p>${esc(saveLabel())}</p></div></div><div class="item-actions"><button class="button" data-action="sync-now">${icon('check')} Sync now</button><button class="button" data-action="sign-out">Sign out</button></div>`);
+function modal(title, body) {
+  const d = $('dialog');
+  $('dialog-content').innerHTML = `<header><h2 id="dialog-title">${esc(title)}</h2><button class="icon-btn" data-act="close" aria-label="Close">${icon('close')}</button></header><div class="dialog-body">${body}</div>`;
+  if (!d.open) d.showModal();
 }
-function updateAccountButton(){const b=$('account-button');if(!b)return;b.title=accountUser?`Signed in as ${accountUser.email||'Google account'}`:'Sign in to sync saves';b.setAttribute('aria-label',b.title);b.classList.toggle('signed-in',!!accountUser);b.classList.toggle('attention',cloud?.status==='conflict'||cloud?.status==='choice');}
-function reflectCloud(){$('save-status').textContent=saveLabel();updateAccountButton();if(cloud.status==='conflict'&&!conflictShown)conflictModal();if(cloud.status!=='conflict')conflictShown=false;}
-connectAccount().then(fb=>{
- account=fb;
- cloud=new CloudSaves({remote:fb.remote,onChange:reflectCloud});
- fb.onUser(async user=>{
-  accountUser=user;
-  await cloud.connect(user?user.uid:null);
-  updateAccountButton();
-  if(!user){persist();return;}
-  if((cloud.status==='synced'||cloud.status==='offline')&&cloud.record)adoptRecord(cloud.record.payload);
-  else if(cloud.status==='choice')accountModal();
-  else if(cloud.status==='unavailable')toast('Cloud saves are unavailable. Playing on this device only.');
-  persist();
- });
- updateAccountButton();
-}).catch(()=>{/* Firebase unreachable: guest mode continues with local saves. */});
-window.addEventListener('online',()=>cloud?.flush());
-function sound(freq=440){if(!state.settings.sound)return;try{audioContext??=new (window.AudioContext||window.webkitAudioContext)();void audioContext.resume();const o=audioContext.createOscillator(),g=audioContext.createGain();o.type='sine';o.frequency.value=freq;g.gain.setValueAtTime(.035,audioContext.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioContext.currentTime+.15);o.connect(g).connect(audioContext.destination);o.start();o.stop(audioContext.currentTime+.15);}catch{/* Sound is optional. */}}
-function processEvents(events){
- let refreshHero=false,refreshView=false;
- for(const e of events){
-  battle.event(e);
-  if(e.type==='level'){toast('Level '+e.value+'! You gained a mastery point.','success');refreshHero=true;refreshView=true;}
-  if(e.type==='filteredLoot'&&view==='inventory')refreshView=true;
-  if(e.type==='loot'){if(e.item.rarity>=2)toast(e.item.name+' discovered','loot');if(view==='inventory')refreshView=true;}
-  if(e.type==='bossReady')toast('The seal is broken. The stage guardian is revealed!');
-  if(e.type==='keystone'){toast(e.item.name+' found. Stored in your keystone pouch.','loot');refreshView=true;persist();}
-  if(e.type==='riftWave'){toast(e.wave===5?'The final rift guardian has arrived.':'Rift wave '+e.wave+' begins.');persist();}
-  if(e.type==='riftComplete'){toast('Rift conquered! Return to the Village with your spoils.','success');persist();}
-  if(e.type==='riftFailed'){toast('You fell in the rift. Its portal is permanently closed.');navigate('village');persist();}
-  if(e.type==='orb')toast(e.name+' found.','loot');
-  if(e.type==='complete')toast('Stage '+e.stage+' cleared. Guardian rewards collected.','success');
-  if(e.type==='stage')toast('Stage '+e.value+' · A new expedition awaits.');
-  if(e.type==='death')toast('Back at camp. Map progress is preserved. Upgrade your gear before returning.');
-  if(e.type==='warning')toast(e.text);
-  if(e.type==='chest')toast('Hidden cache discovered.','loot');
-  if(e.type==='kill'&&['forge','journal','hero'].includes(view))refreshView=true;
-  if(e.type==='hit')sound(180);if(e.type==='skill')sound(520);
- }
- if(refreshHero)renderHero();if(refreshView&&view!=='adventure')renderSecondary();if(events.length)update();
+const closeModal = () => { if ($('dialog').open) $('dialog').close(); };
+function confirmModal(title, text, label, action, danger = true) {
+  pendingConfirm = action;
+  modal(title, `<p>${text}</p><div class="actions"><button class="btn" data-act="close">Cancel</button><button class="btn ${danger ? 'danger' : 'primary'}" data-act="confirm">${esc(label)}</button></div>`);
 }
-function navigate(next){if(!['adventure','village','hero','inventory','forge','journal'].includes(next))return;
- if(next==='village'&&state.location!=='village'){teleportVillage(state);persist();update();}
- if(next==='adventure'&&state.location==='village')next='village';view=next;$('adventure-view').hidden=view!=='adventure';$('secondary-view').hidden=view==='adventure';document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);if(b.classList.contains('nav-item'))b.setAttribute('aria-current',b.dataset.view===view?'page':'false');});const titles={village:['Welcome to the Village.','Return to the road, or step beyond the veil.'],adventure:['Into the wild.','A quiet forest. An unwritten legend. Your next step.'],hero:['A legend in the making.','Shape your strength. Find your own way.'],inventory:['Treasures of the wild.','Every discovery has a story. Make it part of yours.'],forge:['Made for the journey.','A little fire. A little patience. A sharper edge.'],journal:['The story so far.','Small victories, waiting to become a saga.']};$('page-title').textContent=titles[view][0];$('page-subtitle').textContent=titles[view][1];$('breadcrumb-view').textContent=view==='hero'?'Character':view[0].toUpperCase()+view.slice(1);if(view!=='adventure')renderSecondary();window.scrollTo({top:0,behavior:'instant'});}
-const TALENTS=[['might','swords','Strength of the oak','+3 attack per point'],['guard','shield','An unbroken guard','+2 defense per point'],['vigor','heart','Heart of the wild','+18 maximum health per point'],['fortune','star','A fortunate soul','+1.5% critical chance per point']];
-function renderSecondary(){
- const p=stats(state);
- if(view==='village'){$('secondary-view').innerHTML=villagePanel(state,keyPage);}
- else if(view==='inventory'){
-  $('secondary-view').innerHTML=equippedPanel(state)+inventoryPanel(state,filter,inventorySort)+keystonePouch(state,keyPage);
- }else if(view==='forge'){
-  $('secondary-view').innerHTML=`<div class="forge-banner"><div class="forge-emblem">${icon('hammer')}</div><div><div class="eyebrow">THE WANDERER’S FORGE</div><h2>Every piece. Made stronger.</h2><p>Each upgrade adds 10% of the original implicit stats. Explicit modifiers stay unchanged.</p></div></div><div class="forge-grid">${Object.entries(state.equipment).map(([slot,item])=>{if(!item)return `<section class="panel forge-card empty-forge">${icon(itemIcon(slot))}<h3>No ${GEAR[slot].label.toLowerCase()} equipped</h3><p>Equip ${GEAR[slot].label.toLowerCase()} gear to start improving it.</p><button class="button" data-view="inventory">Open inventory</button></section>`;const cost=upgradeCost(item),can=state.gold>=cost.gold;return `<section class="panel forge-card rarity-${item.rarity}"><span class="item-rarity">${rarityNames[item.rarity]} · ${GEAR[slot].label}</span><div class="forge-item-art">${icon(itemIcon(slot))}</div><h3>${esc(item.name)}</h3><span class="forge-level">Upgrade +${item.upgrade}</span><div class="upgrade-preview"><span>${primaryPower(item)}<small>${STAT_LABELS[primaryStat(item)]}</small></span>${icon('arrow')}<span class="gold-text">${primaryPower({...item,upgrade:item.upgrade+1})}<small>After upgrade</small></span></div><div class="forge-cost"><span class="${state.gold<cost.gold?'insufficient':''}">${icon('coin')} ${fmt(cost.gold)}</span></div><button class="button gold-button" data-upgrade="${slot}" ${can?'':'disabled'}>${icon('hammer')} ${can?'Upgrade equipment':'Gather more gold'}</button></section>`;}).join('')}</div><section class="panel secondary-panel merge-panel"><div class="view-section-title"><div><h2>Something greater, together.</h2><p>Merge 3 unequipped items of the same type and rarity into one item of the next rarity. Keeps the highest item level and upgrade rank, and rerolls the base within ±5%. Costs 75 gold.</p></div>${icon('sparkles')}</div><div class="merge-recipes">${GEAR_SLOTS.flatMap(slot=>[0,1,2].map(rarity=>{const n=state.inventory.filter(i=>i.slot===slot&&i.rarity===rarity).length;return n?`<div class="merge-recipe"><span class="recipe-icon rarity-${rarity}">${icon(itemIcon(slot))}</span><div><strong>${rarityNames[rarity]} ${GEAR[slot].label+' gear'}</strong><small>${n} / 3 available → ${rarityNames[rarity+1]}</small></div><button class="button" data-merge-slot="${slot}" data-merge-rarity="${rarity}" ${n>=3&&state.gold>=75?'':'disabled'}>Merge ${icon('sparkles')}</button></div>`:''})).join('')||'<p class="subtle">Find more equipment to unlock a merge recipe.</p>'}</div></section>${craftingPanel(state)}`;
- }else if(view==='hero'){
-  $('secondary-view').innerHTML=`<div class="character-layout"><section class="panel character-summary"><div class="large-portrait"><canvas id="large-portrait" width="240" height="240" aria-label="Your Vanguard hero"></canvas></div><span class="eyebrow">VANGUARD · LEVEL ${state.level}</span><h2>${esc(state.name)}</h2><p>A steadfast guardian of the northern wilds.</p><button class="text-button" data-action="rename">Give your hero a name ${icon('feather')}</button><div class="character-stats">${[['sword','Attack',p.attack],['shield','Defense',p.defense],['heart','Max health',p.maxHp],['zap','Critical chance',`${(p.crit*100).toFixed(1)}%`],['trophy','Guardians defeated',state.bosses],['compass','Highest stage',state.maxStage],['sparkles','Fire / Cold / Lightning',p.fire+' / '+p.cold+' / '+p.lightning],['zap','Attack speed bonus',p.haste+'%'],['shield','Elemental resistance',p.resist+'%'],['heart','Life leech',p.leech+'%']].map(([i,label,n])=>`<div>${icon(i)}<span>${label}</span><strong>${n}</strong></div>`).join('')}</div></section><div>${combatPanel(state)}<section class="panel secondary-panel"><div class="view-section-title"><h2>Choose your path</h2><span class="points-badge">${state.points} mastery ${state.points===1?'point':'points'}</span></div><p class="section-description">Earn one mastery point with every level. Each choice makes your hero stronger.</p><div class="talents">${TALENTS.map(([id,i,name,desc])=>`<div class="talent-row"><span class="talent-icon">${icon(i)}</span><div><strong>${name}</strong><p>${desc}</p><small>Rank ${state.talents[id]}</small></div><button class="button" data-learn="${id}" aria-label="Improve ${name}" ${state.points>0?'':'disabled'}>+1</button></div>`).join('')}</div></section><section class="panel secondary-panel abilities-panel"><h2>The power within</h2>${SKILLS.map(s=>`<div class="ability-row"><span class="skill-art ${s.id}">${icon(s.icon)}</span><div><strong>${s.name}</strong><p>${s.description}</p><small>${state.level<s.level?`Unlocks at level ${s.level}`:`${s.cooldown}s cooldown · Press ${s.key} in battle`}</small></div>${state.level<s.level?icon('lock'):icon('check')}</div>`).join('')}</section></div></div>`;
-  const c=$('large-portrait').getContext('2d');drawHero(c,120,202,2.4);
- }else if(view==='journal'){
-  $('secondary-view').innerHTML=`<section class="journal-intro"><span class="chapter-number">I</span><div><div class="eyebrow">CHAPTER ONE</div><h2>Whispers in the Mistwood</h2><p>Beyond the last lantern of home, the forest is stirring. Sharpen your blade, follow the old paths, and discover what guards the way north.</p></div></section><div class="journal-quests">${QUESTS.map(q=>{const done=state.claimed.includes(q.id),ready=q.value(state)>=q.target;return `<section class="panel journal-quest ${done?'quest-complete':''}"><span class="quest-icon">${icon(done?'check':q.id==='forge'?'hammer':q.id==='guardian'?'trophy':'compass')}</span><div class="quest-details"><h3>${q.name}</h3><p>${q.description}</p><div class="quest-progress"><div class="meter"><i style="width:${Math.min(100,q.value(state)/q.target*100)}%"></i></div><span>${Math.min(q.value(state),q.target)} / ${q.target}</span></div></div><div class="quest-rewards"><span>${icon('coin')} ${q.gold}</span><button class="button ${ready&&!done?'gold-button':''}" data-claim="${q.id}" ${done||!ready?'disabled':''}>${done?`${icon('check')} Collected`:ready?'Claim rewards':'In progress'}</button></div></section>`}).join('')}</div><section class="panel secondary-panel journey-stats"><h2>Footprints along the way</h2><div>${[['Creatures defeated',state.kills],['Guardians overcome',state.bosses],['Equipment forged',state.crafted],['Highest stage',state.maxStage]].map(([label,n])=>`<span><strong>${fmt(n)}</strong><small>${label}</small></span>`).join('')}</div></section>`;
- }
+
+// ---------- HUD ----------
+let skillbarKey = '';
+function renderSkillbar() {
+  const key = state.skills.slots.join(',') + '|' + state.level + '|' + JSON.stringify(state.skills.auto);
+  if (key === skillbarKey) return; skillbarKey = key;
+  $('skillbar').innerHTML = state.skills.slots.map((id, i) => {
+    const def = SKILL_BY_ID[id];
+    if (!def) return `<button class="skill empty" data-act="open" data-arg="skills" aria-label="Empty skill slot ${i+1}">${icon('plus')}</button>`;
+    const locked = state.level < def.level;
+    return `<button class="skill ${locked ? 'locked' : ''}" id="skill-${i}" data-act="cast" data-arg="${id}" style="--skill:${def.color}" aria-label="${esc(def.name)}${locked ? `, unlocks at level ${def.level}` : ''}">${icon(locked ? 'lock' : def.icon)}<i class="cd"></i><b class="cd-text"></b>${locked ? `<small>Lv ${def.level}</small>` : state.skills.auto[id] !== false ? '<small class="auto">AUTO</small>' : ''}</button>`;
+  }).join('') + `<button class="skill potion" id="potion" data-act="potion" aria-label="Health potion">${icon('flask')}<i class="cd"></i><b class="count" id="potion-count"></b></button>`;
+  cache.clear();
 }
-function modal(title,body,cls=''){const d=$('dialog');$('dialog-content').innerHTML=`<div class="dialog-heading"><h2 id="dialog-title">${title}</h2><button class="icon-button" data-action="close" aria-label="Close dialog">${icon('close')}</button></div><div class="dialog-body ${cls}">${body}</div>`;if(!d.open)d.showModal();}
-function showMap(cycle=journey(state)-1){modal('The Northern Realms',worldMapPanel(state,cycle),'map-dialog');}
-function inspectItem(id,equipped=false){const item=equipped?Object.values(state.equipment).find(i=>i?.id===id):state.inventory.find(i=>i.id===id);if(!item)return;const current=state.equipment[item.slot],power=primaryPower(item),delta=Number((power-(current?primaryPower(current):0)).toFixed(1));modal('A closer look',`<div class="item-detail rarity-${item.rarity}"><span class="item-rarity">${rarityNames[item.rarity]} · ${GEAR[item.slot].label}</span><div class="detail-art">${icon(itemIcon(item.slot))}</div><h3>${esc(item.name)}${item.upgrade?' +'+item.upgrade:''}</h3><p>${GEAR[item.slot].label} gear · item level ${item.itemLevel}</p><div class="detail-stat"><span>${STAT_LABELS[primaryStat(item)]}</span><strong>${power}</strong>${!equipped?`<span class="${delta>=0?'positive':'negative'}">${delta>=0?'+':''}${delta} vs. equipped</span>`:''}</div>${implicitMarkup(item)}${!equipped&&RING_SLOTS.includes(item.slot)?RING_SLOTS.map(slot=>`<h4>Compare with ${GEAR[slot].label.toLowerCase()}</h4>${itemAffixDetails({...item,slot},state)}`).join(''):itemAffixDetails(item,state)}<div class="item-actions">${equipped?`<button class="button gold-button" data-action="go-forge">${icon('hammer')} Improve at the forge</button>`:`${equipButtons(item)}<button class="button" data-salvage="${id}">Salvage · ${salvageGold(item)} ${icon('coin')}</button>`}</div></div>`);}
-function confirmSalvage(items){
- pendingSalvage=items.map(i=>i.id);if(!items.length)return;
- const gold=items.reduce((n,i)=>n+salvageGold(i),0);
- modal('Confirm salvage',`<p class="dialog-description">Permanently salvage these ${items.length} items for <strong>${gold} gold</strong>? This cannot be undone. Equipped items are never included.</p><ul class="salvage-preview">${items.map(i=>`<li>${esc(i.name)} <span>${rarityNames[i.rarity]} · ${salvageGold(i)} gold</span></li>`).join('')}</ul><div class="item-actions"><button class="button" data-action="close">Keep items</button><button class="button gold-button" data-action="confirm-salvage">Salvage ${items.length} · ${gold} gold</button></div>`);
+function updateHud() {
+  const p = stats(state), r = region(state), map = state.map, e = state.enemy, inRift = state.location === 'rift', inTown = state.location === 'village';
+  setStyle('hp-fill', 'height', `${Math.max(0, Math.min(100, state.hp / p.maxHp * 100))}%`); setText('hp-text', fmt(Math.ceil(state.hp)));
+  setStyle('mp-fill', 'height', `${Math.max(0, Math.min(100, state.mana / p.maxMana * 100))}%`); setText('mp-text', fmt(Math.floor(state.mana)));
+  $('hp-orb').classList.toggle('low', state.hp < p.maxHp * .35); $('hp-orb').classList.toggle('warded', state.effects.ward > 0);
+  setStyle('xp-bar', 'width', `${state.xp / xpRequired(state.level) * 100}%`); setText('level-text', `Lv ${state.level}`);
+  setText('gold', fmt(state.gold));
+  setText('region-name', inRift ? 'Rift' : inTown ? 'Village' : r.name);
+  setText('stage-label', inRift ? `Wave ${state.rift.wave}/${RIFT_WAVES}` : `Stage ${state.stage}`);
+  const sealPct = inRift ? (state.rift.wave - 1 + (map.completed ? 1 : 0)) / RIFT_WAVES * 100 : map.bossUnlocked ? 100 : map.goal ? map.progress / map.goal * 100 : 0;
+  setStyle('seal-bar', 'width', `${sealPct}%`); $('stage-chip').classList.toggle('boss', !!map.bossUnlocked && !map.completed);
+  setHtml('mode-btn', icon(state.advance ? 'forward' : 'loop')); $('mode-btn').classList.toggle('on', state.advance); $('mode-btn').disabled = state.location !== 'expedition';
+  $('mode-btn').setAttribute('aria-label', state.advance ? 'Auto-advance on. Tap to farm this stage.' : 'Farming this stage. Tap to auto-advance.');
+  setText('speed-btn', `${state.speed}×`);
+  setHtml('pause-btn', icon(state.auto ? 'pause' : 'play'));
+  // Target plate
+  const show = e && e.hp > 0 && !inTown && (!e.boss || map.bossUnlocked);
+  $('target').hidden = !show;
+  if (show) {
+    const tier = ENEMY_TIERS[e.tier];
+    setText('target-name', e.name); setStyle('target-name', 'color', tier.color);
+    setStyle('target-bar', 'width', `${e.hp / e.maxHp * 100}%`); setStyle('target-bar', 'background', e.tier === 'normal' ? '#d9584a' : tier.color);
+    setHtml('target-mods', e.modifiers.map(m => `<span>${esc(MODIFIERS[m].name)}</span>`).join(''));
+    $('target').classList.toggle('boss', e.boss);
+  }
+  // Skills
+  renderSkillbar();
+  state.skills.slots.forEach((id, i) => {
+    const b = $('skill-' + i); if (!b || !id) return;
+    const def = SKILL_BY_ID[id], sp = skillParams(state, id, p.attackRange), cd = state.cooldowns[id] || 0, locked = state.level < def.level;
+    const starved = !locked && (p.bloodMagic ? state.hp <= sp.mana : state.mana < sp.mana);
+    const frac = cd > 0 ? Math.min(1, cd / sp.cooldown) : 0;
+    b.style.setProperty('--cd', frac); b.querySelector('.cd-text').textContent = cd > 0 ? (cd >= 10 ? Math.ceil(cd) : cd.toFixed(1)) : '';
+    b.classList.toggle('cooling', cd > 0); b.classList.toggle('starved', starved); b.classList.toggle('active', (id === 'whirl' && state.effects.whirl > 0) || (id === 'warcry' && state.effects.warcry > 0) || (id === 'ward' && state.effects.ward > 0));
+  });
+  setText('potion-count', String(state.potion.charges)); $('potion').classList.toggle('starved', state.potion.charges <= 0);
+  $('potion').style.setProperty('--cd', state.potion.charges >= p.potionCharges ? 0 : 1 - state.potion.progress / POTION_KILLS);
+  // Dock badges
+  badge('dock-bag', state.inventory.length >= 44 ? 'full' : dockUpgrades ? '▲' : '');
+  badge('dock-skills', state.skillPoints > 0 ? String(state.skillPoints) : '');
+  badge('dock-tree', state.points > 0 ? String(state.points) : '');
+  badge('dock-world', claimable(state) ? '!' : state.keystones.length && !inRift ? String(state.keystones.length) : '');
+  // Overlay
+  const overlay = inTown ? `<div class="overlay-card"><h3>${icon('tree')} The Village</h3><p>Safe ground. ${state.returnPortal ? `Your stage ${state.stage} expedition is waiting.` : ''}</p><div class="actions wrap">${state.returnPortal ? `<button class="btn primary" data-act="resume">${icon('play')} Resume</button>` : `<button class="btn primary" data-act="new-run">${icon('compass')} Set out</button>`}${state.riftPortal ? `<button class="btn primary" data-act="enter-rift">${icon('portal')} Enter rift</button>` : ''}<button class="btn" data-act="open-rifts">${icon('portal')} Rifts</button></div></div>`
+    : inRift && map.completed ? `<div class="overlay-card"><h3>${icon('trophy')} Rift conquered</h3><p>Your spoils are collected.</p><div class="actions"><button class="btn primary" data-act="village">Return to Village</button></div></div>`
+    : !state.auto ? `<div class="overlay-card slim"><h3>${icon('pause')} Paused</h3><div class="actions"><button class="btn primary" data-act="pause">${icon('play')} Resume</button></div></div>` : '';
+  setHtml('overlay', overlay); $('overlay').hidden = !overlay;
 }
-function settings(){modal('Make yourself at home',`<div class="settings-row"><div><strong>Battle sounds</strong><p>Soft audio for attacks and abilities.</p></div><label class="switch-label"><input type="checkbox" id="setting-sound" aria-label="Battle sounds" ${state.settings.sound?'checked':''}><span class="switch"></span></label></div><div class="settings-row"><div><strong>Ambient motion</strong><p>Animated heroes and drifting fireflies.</p></div><label class="switch-label"><input type="checkbox" id="setting-motion" aria-label="Ambient motion" ${state.settings.motion?'checked':''}><span class="switch"></span></label></div><div class="save-info">${icon('shield')}<div><strong>Your saga stays with you.</strong><p>Progress saves automatically in this browser. Use the same browser and device to continue. Offline rewards run at 50% battle efficiency, for up to 8 hours, when battle is active.</p></div></div><button class="button" data-action="help">${icon('info')} How to play</button>`);}
-function help(){modal('Welcome to the wild',`<p class="dialog-description">You are a Vanguard, following the old paths into the northern realms. Your hero handles the fighting. You shape the journey.</p><p class="dialog-description">Visit the Village at any time. Its return portal preserves your expedition; its entrance starts a fresh stage. Craft keystones with orbs or find them as rare drops. Each keystone opens a rift with four monster waves and a final boss. Enter once: death or teleporting out ends that rift. Difficulty modifiers improve item level, quantity, and rarity.</p><div class="help-steps">${[['swords','Adventure at your own pace','Battles run automatically. Tap the clearing to move, or pause whenever you like. Progression is endless: each set of 20 stages revisits the four regions with stronger enemies and higher-level loot. Every stage has a generated map with one winding route to the boss. Defeat normal, magic, and rare enemies to fill the guardian bar, then defeat the unique stage boss. Auto advance enters the next stage; switch it off to farm fresh maps of the current stage.'],['zap','Lend a little strength','Use Runic cleave against nearby packs. Move outside the red circles before a boss slam or volatile explosion. Unlock a healing spell at level 3 and lightning at level 5. On desktop, use keys 1, 2, and 3. Space pauses battle.'],['bag','Make every discovery count','Equip head, neck, shoulder, chest, wrist, hand, belt, leg, foot, and two rings (left and right). Rings fit either finger. Use the direct salvage buttons in your satchel or confirmed normal/magic cleanup to make space. Implicit damage, armor, and life scale with item level with ±5% variance. Magic and rare items roll modifiers such as movement speed, attack speed, reach, critical strike chance and multiplier, elemental damage, life leech, and resistance. Your Character screen shows live combat attributes, including attacks per second and average attack DPS. Unique items have special powers. Inspect loot to compare its actual stat changes before equipping. Loot appears on the battlefield before automatic collection; tap a label to collect immediately. Customize the Loot filter to hide unwanted drops or turn them into gold. Salvage spare gear for gold, upgrade at the forge, or merge three matching items into a higher rarity.'],['user','Find your path','Spend a mastery point every time you level up. Claim quest rewards in your journal. If a guardian is too strong, return to an earlier stage from the world map.'],['clock','Return to a little progress','With battle active, earn gold, experience, and orbs while away. Offline rewards use half your battle rate, capped at 8 hours; they do not advance stages.']].map(([i,t,p])=>`<div>${icon(i)}<section><h3>${t}</h3><p>${p}</p></section></div>`).join('')}</div><button class="button gold-button" data-action="close">Your adventure awaits ${icon('arrow')}</button>`);}
-document.addEventListener('click',e=>{
- const b=e.target.closest('button');if(!b)return;
- if(b.dataset.action==='resume-expedition'){if(resumeExpedition(state)){navigate('adventure');update();persist();}}
- if(b.dataset.action==='enter-rift'){if(enterRift(state)){navigate('adventure');update();persist();toast('Rift entered. The portal has been consumed.');}}
- if(b.dataset.action==='inspect-rift-portal'&&state.riftPortal)modal('Your open rift',keystoneDetails(state.riftPortal));
- if(b.dataset.action==='rift-info'&&state.rift)modal('Rift difficulty & rewards',keystoneDetails(state.rift.keystone));
- if(b.dataset.keyPage!==undefined){keyPage=Number(b.dataset.keyPage);renderSecondary();}
- if(b.dataset.keystone){const key=state.keystones.find(k=>k.id===b.dataset.keystone);if(key)modal('Inspect keystone',keystoneDetails(key)+(state.location==='village'?'<button class="button gold-button" data-open-rift="'+key.id+'" '+(state.riftPortal?'disabled':'')+'>Open portal · consume keystone</button>'+(state.riftPortal?'<p class="small-description">You already have an open rift portal.</p>':''):'<button class="button" data-action="key-town">Teleport to Village</button>'));}
- if(b.dataset.action==='key-town'){$('dialog').close();navigate('village');}
- if(b.dataset.openRift){if(openRiftPortal(state,b.dataset.openRift)){$('dialog').close();renderSecondary();update();persist();toast('Rift portal opened. One entry remains.');}}
- if(b.dataset.craftKeystone!==undefined){const input=$('keystone-level');if(!input.reportValidity())return;const result=craftKeystone(state,Number(b.dataset.craftKeystone),Math.random,Number(input.value));if(result.ok){renderSecondary();update();persist();toast(result.item.name+' crafted.','loot');}else toast(result.reason);}
- if(b.dataset.filter){filter=b.dataset.filter;renderSecondary();}
- if(b.dataset.item)inspectItem(b.dataset.item,b.dataset.equipped==='true');
- if(b.dataset.action==='equipment'){const item=state.equipment[b.dataset.slot];if(item)inspectItem(item.id,true);else{filter=RING_SLOTS.includes(b.dataset.slot)?'rings':b.dataset.slot;navigate('inventory');}}
- if(b.dataset.action==='map')showMap();
- if(b.dataset.mapCycle!==undefined)showMap(Number(b.dataset.mapCycle));
- if(b.dataset.action==='loot-filter')modal('Your loot filter',lootFilterPanel(state));
- if(b.dataset.lootPreset)modal('Your loot filter',lootFilterPanel(state,normalizeLootFilter({minRarity:b.dataset.lootPreset==='rare'?2:0})));
- if(b.dataset.action==='collect-ground'){const events=[];for(const drop of [...state.groundLoot])collectLoot(state,drop.id,events);processEvents(events);persist();}
- if(b.dataset.action==='enemy-info')modal('Enemy dossier',enemyDetails(state));
- if(b.dataset.action==='threat-guide')modal('Enemies of the northern realms',threatGuide());
- if(b.dataset.action==='expedition-map'){modal('Your expedition',expeditionOverview(state));updateExpedition(state);}
- if(b.dataset.action==='reroll-map')modal('Explore a new path',`<p class="dialog-description">Generate a fresh map of stage ${state.stage}. Your current map’s guardian progress will reset. Your hero, equipment, gold, and unlocked stages are kept.</p><div class="reroll-actions"><button class="button" data-action="close">Keep exploring</button><button class="button gold-button" data-action="confirm-reroll">${icon('compass')} Generate new map</button></div>`);
- if(b.dataset.action==='confirm-reroll'&&state.location==='expedition'){startExpedition(state);$('dialog').close();update();persist();toast('A new path through '+region(state).name+'.');}
- if(b.dataset.craft||b.dataset.bench){const item=craftTarget(state,$('craft-item')?.value);
-  const result=b.dataset.craft?craft(state,item,b.dataset.craft):benchCraft(state,item,$('bench-affix')?.value,Number($('bench-tier')?.value));
-  if(result.ok){sound(560);toast(b.dataset.craft?`${CRAFT_OPERATIONS[b.dataset.craft].name} · ${result.item.name} is now ${ITEM_RARITIES[result.item.rarity]}.`:`Crafted ${result.affix} (T${result.tier}) onto ${result.item.name}.`,'success');}else toast(result.reason,'info');
-  if(view==='forge')renderSecondary();update();persist();}
- if(b.dataset.action==='mod-dictionary')modal('Modifier dictionary',modDictionary(state));
- if(b.dataset.action==='close')$('dialog').close();
- if(b.dataset.action==='account')accountModal();
- if(b.dataset.action==='sign-in')account?.signIn().catch(()=>toast('Sign-in did not complete. Try again.'));
- if(b.dataset.action==='sign-out'){persist();$('dialog').close();account?.signOut();}
- if(b.dataset.action==='sync-now'){cloud?.flush();$('dialog').close();toast('Syncing to your account…');}
- if(b.dataset.action==='use-device-save'){if(cloud?.start(JSON.stringify(state))){cloud.flush();$('dialog').close();toast('This device’s progress now syncs to your account.','success');}}
- if(b.dataset.action==='use-fresh-save'){const fresh=createGame();if(cloud?.start(JSON.stringify(fresh))){state=fresh;$('dialog').close();cloud.flush();renderHero();navigate('adventure');update();toast('A new legend begins on your account.','success');}}
- if(b.dataset.action==='resolve-local')cloud?.resolve('local').then(ok=>{if(ok){$('dialog').close();toast('This device’s progress now syncs to your account.','success');}else if(cloud.status==='conflict')conflictModal();});
- if(b.dataset.action==='resolve-cloud')cloud?.resolve('cloud').then(ok=>{if(ok){$('dialog').close();adoptRecord(cloud.record.payload);toast('Cloud progress restored to this device.','success');}else if(cloud.status==='conflict')conflictModal();});
- if(b.dataset.action==='settings')settings();
- if(b.dataset.action==='help')help();
- if(b.dataset.action==='go-forge'){$('dialog').close();navigate('forge');}
- if(b.dataset.action==='rename')modal('A name for your legend',`<form id="rename-form"><label class="name-label" for="hero-name">Hero name</label><input id="hero-name" name="heroName" value="${esc(state.name)}" maxlength="20" minlength="1" required autocomplete="off"><p class="small-description">Up to 20 characters.</p><button class="button gold-button" type="submit">Save name ${icon('check')}</button></form>`);
- let changed=false;
- if(b.dataset.equip){changed=equip(state,b.dataset.equip,b.dataset.equipSlot);if(changed){$('dialog').close();toast('Equipment ready for the road.','success');}}
- if(b.dataset.action==='salvage-junk')confirmSalvage(salvageCandidates(state,filter));
- if(b.dataset.salvage){
-  const item=state.inventory.find(i=>i.id===b.dataset.salvage);
-  if(item&&(item.rarity>=2||item.unique||item.upgrade))confirmSalvage([item]);
-  else if(item){const gold=salvageGold(item);changed=salvage(state,item.id);if(changed){$('dialog').close();toast(`Salvaged for ${gold} gold.`,'success');}}
- }
- if(b.dataset.action==='confirm-salvage'){
-  const gold=state.gold;let count=0;
-  for(const id of pendingSalvage)if(salvage(state,id))count++;
-  pendingSalvage=[];changed=count>0;$('dialog').close();
-  if(changed)toast(`Salvaged ${count} items for ${state.gold-gold} gold.`,'success');
- }
- if(b.dataset.upgrade){changed=upgrade(state,b.dataset.upgrade);if(changed){toast(`${state.equipment[b.dataset.upgrade].name} upgraded to +${state.equipment[b.dataset.upgrade].upgrade}.`,'success');sound(620);}}
- if(b.dataset.mergeSlot){const item=merge(state,b.dataset.mergeSlot,Number(b.dataset.mergeRarity));changed=!!item;if(item)toast(`${item.name} forged!`,'loot');}
- if(b.dataset.learn){changed=learn(state,b.dataset.learn);if(changed)toast('Mastery improved. Your hero grows stronger.','success');}
- if(b.dataset.travel){changed=travel(state,Number(b.dataset.travel));if(changed){$('dialog').close();navigate('adventure');toast(`Arrived at ${region(state).name}, stage ${state.stage}.`);}}
- if(changed){renderHero();if(view!=='adventure')renderSecondary();update();persist();}
- if(b.dataset.claim&&view==='journal')renderSecondary();
+let dockUpgrades = 0;
+function badge(id, text) { const el = $(id).querySelector('.badge'); if (cache.get(id) !== text) { cache.set(id, text); el.textContent = text; el.hidden = !text; } }
+
+// ---------- Sheet ----------
+function openSheet(name) {
+  if (ui.sheet === name) return closeSheet();
+  ui.sheet = name; $('sheet').hidden = false; document.body.classList.add('sheet-open');
+  document.querySelectorAll('#dock button').forEach(b => b.classList.toggle('on', b.dataset.arg === name));
+  $('sheet-title').innerHTML = `${icon(SHEETS[name][1])} ${SHEETS[name][0]}`;
+  renderSheet(true); layout();
+}
+function closeSheet() {
+  ui.sheet = null; $('sheet').hidden = true; document.body.classList.remove('sheet-open');
+  document.querySelectorAll('#dock button').forEach(b => b.classList.remove('on')); layout();
+}
+function renderSheet(fresh = false) {
+  sheetDirty = false; if (!ui.sheet) return;
+  const body = $('sheet-body'), top = body.scrollTop, tree = $('tree-scroll'), treePos = tree ? [tree.scrollLeft, tree.scrollTop, tree.scrollWidth] : null;
+  const picker = body.querySelector('.picker'), pickerPos = picker ? picker.scrollLeft : 0;
+  const html = ui.sheet === 'hero' ? heroPanel(state) : ui.sheet === 'bag' ? bagPanel(state, ui) : ui.sheet === 'skills' ? skillsPanel(state, ui) : ui.sheet === 'tree' ? treePanel(state, ui) : ui.sheet === 'forge' ? forgePanel(state, ui) : worldPanel(state, ui);
+  body.className = 'sheet-body ' + ui.sheet; body.innerHTML = html; body.scrollTop = fresh ? 0 : top;
+  const nextPicker = body.querySelector('.picker'); if (nextPicker) nextPicker.scrollLeft = pickerPos;
+  const next = $('tree-scroll');
+  if (next) {
+    if (treePos && !fresh) { const k = next.scrollWidth / treePos[2]; next.scrollLeft = (treePos[0] + next.clientWidth/2) * k - next.clientWidth/2; next.scrollTop = (treePos[1] + next.clientHeight/2) * k - next.clientHeight/2; }
+    else { next.scrollLeft = (next.scrollWidth - next.clientWidth) / 2; next.scrollTop = (next.scrollHeight - next.clientHeight) / 2; }
+  }
+  dockUpgrades = upgradeCount(state);
+}
+// Re-render an open sheet soon, unless the player is mid-interaction with a form control.
+function refreshSheet(now = false) {
+  if (!ui.sheet) { sheetDirty = false; return; }
+  if (now) return renderSheet();
+  sheetDirty = true;
+}
+function layout() {
+  if (!battle) return;
+  const isWide = wide.matches, top = $('hud-top').getBoundingClientRect().bottom, w = innerWidth, h = innerHeight;
+  const dock = $('dock').getBoundingClientRect(), bottomHud = $('hud-bottom').getBoundingClientRect(), sheet = ui.sheet ? $('sheet').getBoundingClientRect() : null;
+  battle.insets = isWide
+    ? {top, left:dock.right, right:sheet ? w - sheet.left : 0, bottom:h - bottomHud.top}
+    : {top, left:0, right:0, bottom:sheet ? h - sheet.top : h - bottomHud.top};
+}
+
+// ---------- Events from the simulation ----------
+function processEvents(events) {
+  if (!events.length) return;
+  let kills = 0;
+  for (const e of events) {
+    battle.event(e);
+    switch (e.type) {
+      case 'hit': if (performance.now() - lastHitSound > 90) { lastHitSound = performance.now(); sound(e.critical ? 260 : 170, .07, 'triangle'); } break;
+      case 'skill': sound(520, .16); break;
+      case 'kill': kills++; if (e.boss) sound(110, .5, 'sawtooth'); break;
+      case 'level': banner(`Level ${e.value}`, '+1 passive point · +1 skill point', 'gold'); sound(660, .3); skillbarKey = ''; refreshSheet(); break;
+      case 'unlock': toast(`New skill: ${e.name}`, 'gold'); skillbarKey = ''; break;
+      case 'loot': if (e.item.rarity >= 1) feed(`${icon('bag')} <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); if (e.item.rarity >= 3) { toast(`Unique found: ${e.item.name}`, 'gold'); sound(880, .4); } if (ui.sheet === 'bag' || ui.sheet === 'forge') refreshSheet(); dockUpgrades = -1; break;
+      case 'orb': feed(`${icon('sparkles')} <span class="c2">${esc(e.name)}</span>`); if (ui.sheet === 'forge' || ui.sheet === 'world') refreshSheet(); break;
+      case 'keystone': feed(`${icon('portal')} <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); toast('Keystone found — open it in the Village.', 'gold'); persist(); break;
+      case 'bossReady': banner('Seal broken', 'The guardian is revealed', 'boss'); sound(140, .5, 'sawtooth'); break;
+      case 'complete': banner(`Stage ${e.stage} cleared`, state.advance ? 'Onward' : 'Farming this stage', 'gold'); break;
+      case 'death': banner('You fell', 'Recovering at camp', 'dead'); sound(90, .6, 'sawtooth'); break;
+      case 'retreat': toast(`Fell back to stage ${e.stage}. Auto-advance is off until you are stronger.`); break;
+      case 'riftWave': banner(e.wave === RIFT_WAVES ? 'Vharos arrives' : `Rift wave ${e.wave}`, '', e.wave === RIFT_WAVES ? 'boss' : ''); persist(); break;
+      case 'riftComplete': banner('Rift conquered', 'Return to the Village', 'gold'); persist(); refreshSheet(); break;
+      case 'riftFailed': banner('The rift closes', 'You fell inside', 'dead'); persist(); refreshSheet(); break;
+      case 'warning': if (wide.matches || !ui.sheet) toast('Slam incoming — move out of the circle!'); break;
+      case 'chest': feed(`${icon('gem')} Hidden cache opened`); break;
+      case 'newMap': skillbarKey = ''; refreshSheet(); break;
+    }
+  }
+  if (kills && ['hero','world'].includes(ui.sheet)) refreshSheet();
+}
+
+// ---------- Persistence and cloud ----------
+let cloud = null, account = null, accountUser = null, lastFlush = 0, conflictShown = false, saveOk = true;
+function saveLabel() {
+  if (!saveOk) return 'Save unavailable in this browser';
+  if (!cloud?.uid) return 'Saved on this device';
+  return {synced:'Synced to your account', syncing:'Syncing…', offline:'Saved here · syncs when online', conflict:'Save conflict', choice:'Choose which progress to keep', unavailable:'Cloud unavailable · saved here'}[cloud.status] || 'Saved on this device';
+}
+function persist() {
+  const now = Date.now();
+  if (cloud?.uid && cloud.record) { state.lastSave = now; saveOk = cloud.save(JSON.stringify(state)); }
+  else saveOk = saveGame(state, undefined, now);
+  if (cloud?.record?.dirty && now - lastFlush > 15000) { lastFlush = now; cloud.flush(); }
+}
+function adoptState(next) { state = next; skillbarKey = ''; cache.clear(); closeSheet(); updateHud(); }
+function adoptRecord(payload) {
+  const restored = restorePayload(payload);
+  if (restored.recovered) { toast('The cloud save could not be read. This device’s save is unchanged.'); return; }
+  adoptState(restored.state);
+  if (restored.offline) setTimeout(() => showOffline(restored.offline), 600);
+}
+function saveSummary(payload) { try { const d = JSON.parse(payload); return `Level ${d.level} · Stage ${d.stage} · ${fmt(d.gold)} gold · ${new Date(d.lastSave || 0).toLocaleString([], {dateStyle:'medium', timeStyle:'short'})}`; } catch { return 'Unknown save'; } }
+function conflictModal() {
+  conflictShown = true; const remote = cloud.remoteConflict;
+  modal('Two versions of your hero', `<p>This device and the cloud both have newer progress. Choose which one continues — the other is overwritten.</p><div class="choice"><div><b>This device</b><small>${esc(saveSummary(cloud.record?.payload))}</small></div><div><b>Cloud</b><small>${esc(remote ? saveSummary(remote.payload) : 'Unavailable')}</small></div></div><div class="actions"><button class="btn" data-act="resolve-cloud">Keep cloud</button><button class="btn primary" data-act="resolve-local">Keep this device</button></div>`);
+}
+function accountSection() {
+  if (!account) return `<p class="muted small">Cloud saves are unavailable right now. Progress is safe in this browser.</p>`;
+  if (!accountUser) return `<p class="muted small">Sign in to carry your hero across devices. This browser keeps a local backup.</p><div class="actions"><button class="btn primary" data-act="sign-in">${icon('user')} Sign in with Google</button></div>`;
+  if (cloud?.status === 'choice') return `<p>Signed in as <b>${esc(accountUser.email || 'Google account')}</b>. This account has no cloud save yet.</p><div class="actions"><button class="btn" data-act="use-fresh-save">Start fresh</button><button class="btn primary" data-act="use-device-save">Sync this device</button></div>`;
+  return `<p><b>${esc(accountUser.email || 'Google account')}</b><br><small class="muted">${esc(saveLabel())}</small></p><div class="actions"><button class="btn" data-act="sync-now">Sync now</button><button class="btn" data-act="sign-out">Sign out</button></div>`;
+}
+function menuModal() {
+  const s = state.settings, toggle = (id, label, hint, on) => `<label class="toggle row-toggle"><input type="checkbox" data-change="${id}" ${on ? 'checked' : ''}><span></span><div>${label}<small>${hint}</small></div></label>`;
+  modal('Menu', `${toggle('set-sound','Sound','Soft tones for hits and skills', s.sound)}${toggle('set-motion','Motion','Idle animation and screen shake', s.motion)}${toggle('set-potion','Auto-potion','Drink at 35% health', s.autoPotion !== false)}
+  <div class="actions wrap"><button class="btn" data-act="help">${icon('info')} How to play</button><button class="btn" data-act="loot-filter">${icon('filter')} Loot filter</button><button class="btn" data-act="log">${icon('book')} Battle log</button></div>
+  <h4>Account</h4>${accountSection()}<p class="muted small">${esc(saveLabel())} · Everfrost v3.0</p>`);
+}
+function reflectCloud() { if (cloud.status === 'conflict' && !conflictShown) conflictModal(); if (cloud.status !== 'conflict') conflictShown = false; }
+connectAccount().then(fb => {
+  account = fb;
+  cloud = new CloudSaves({remote:fb.remote, onChange:reflectCloud});
+  fb.onUser(async user => {
+    accountUser = user;
+    await cloud.connect(user ? user.uid : null);
+    if (!user) { persist(); return; }
+    if ((cloud.status === 'synced' || cloud.status === 'offline') && cloud.record) adoptRecord(cloud.record.payload);
+    else if (cloud.status === 'choice') menuModal();
+    else if (cloud.status === 'unavailable') toast('Cloud saves are unavailable. Playing on this device only.');
+    persist();
+  });
+}).catch(() => { /* Firebase unreachable: guest mode continues with local saves. */ });
+window.addEventListener('online', () => cloud?.flush());
+
+function showOffline(r) { modal('While you were away', offlineSummary(state, r)); persist(); }
+
+// ---------- Actions ----------
+function inspect(id, equipped) {
+  const item = equipped ? Object.values(state.equipment).find(i => i?.id === id) : state.inventory.find(i => i.id === id);
+  if (item) modal(equipped ? 'Equipped' : 'Item', itemDetail(state, item, {equipped}));
+}
+function equipBest() {
+  let count = 0;
+  for (let guard = 0; guard < 30; guard++) {
+    const best = state.inventory.map(item => ({item, c:bestComparison(state, item)})).filter(x => isUpgrade(x.c)).sort((a,b) => (b.c.dps + b.c.tough) - (a.c.dps + a.c.tough))[0];
+    if (!best || !equip(state, best.item.id, best.c.slot)) break;
+    count++;
+  }
+  toast(count ? `Equipped ${count} upgrade${count === 1 ? '' : 's'}.` : 'Nothing better in the bag.', count ? 'gold' : 'info');
+}
+function act(name, b) {
+  const arg = b.dataset.arg;
+  let changed = true;
+  switch (name) {
+    case 'open': arg === 'menu' ? menuModal() : openSheet(arg); changed = false; break;
+    case 'close-sheet': closeSheet(); changed = false; break;
+    case 'close': closeModal(); changed = false; break;
+    case 'confirm': { const fn = pendingConfirm; pendingConfirm = null; closeModal(); fn?.(); break; }
+    case 'pause': if (state.location !== 'village') state.auto = !state.auto; break;
+    case 'speed': state.speed = state.speed === 1 ? 2 : 1; break;
+    case 'toggle-advance': state.advance = !state.advance; toast(state.advance ? 'Auto-advance on: pushing to the next stage.' : 'Farming: replaying this stage on fresh maps.'); break;
+    case 'cast': { const events = useSkill(state, arg); if (events.length) processEvents(events); else { const def = SKILL_BY_ID[arg]; if (state.level >= def.level && !(state.cooldowns[arg] > 0)) toast(state.mana < skillParams(state, arg).mana && !stats(state).bloodMagic ? 'Not enough mana.' : 'No target in range.'); } changed = false; break; }
+    case 'potion': { const events = []; if (usePotion(state, events)) processEvents(events); else toast(state.potion.charges ? 'Already at full health.' : 'No charges — kills refill your potion.'); changed = false; break; }
+    case 'dossier': modal('Target', enemyDossier(state)); changed = false; break;
+    case 'big-map': modal(state.map.name || 'Map', `<canvas id="big-map" width="640" height="480" class="big-map"></canvas><p class="muted small center">${state.location === 'rift' ? 'Rift arena' : `Seal ${state.map.progress} / ${state.map.goal} · tap the battlefield to move`}</p>`); drawMinimap($('big-map'), state, true); changed = false; break;
+    case 'item': inspect(arg, false); changed = false; break;
+    case 'equipped': inspect(arg, true); changed = false; break;
+    case 'empty-slot': ui.bagFilter = RING_SLOTS.includes(arg) ? 'rings' : arg; ui.sheet === 'bag' ? renderSheet() : openSheet('bag'); changed = false; break;
+    case 'equip': if (equip(state, arg, b.dataset.slot)) { closeModal(); sound(600); } break;
+    case 'equip-best': equipBest(); break;
+    case 'salvage': {
+      const item = state.inventory.find(i => i.id === arg); if (!item) break;
+      const run = () => { const gold = salvageGold(item); if (salvage(state, item.id)) toast(`Salvaged for ${fmt(gold)} gold.`); closeModal(); after(); };
+      if (item.rarity >= 2 || item.unique || item.upgrade) { confirmModal('Salvage this item?', `${esc(item.name)} will be destroyed for ${fmt(salvageGold(item))} gold.`, 'Salvage', run); changed = false; } else { run(); changed = false; }
+      break;
+    }
+    case 'salvage-junk': {
+      const items = salvageCandidates(state, ui.bagFilter); if (!items.length) break;
+      pendingSalvage = items.map(i => i.id); const gold = items.reduce((n,i) => n + salvageGold(i), 0);
+      confirmModal('Salvage junk?', `Salvage ${items.length} normal and magic item${items.length === 1 ? '' : 's'} for <b>${fmt(gold)} gold</b>. Rare, unique and tempered gear is kept.`, `Salvage ${items.length}`, () => { let n = 0; for (const id of pendingSalvage) if (salvage(state, id)) n++; pendingSalvage = []; toast(`Salvaged ${n} items.`); after(); });
+      changed = false; break;
+    }
+    case 'loot-filter': modal('Loot filter', lootFilterForm(state)); changed = false; break;
+    case 'forge-item': ui.forgeItem = arg; ui.forgeTab = 'orbs'; closeModal(); if (ui.sheet !== 'forge') openSheet('forge'); else renderSheet(); changed = false; break;
+    case 'forge-pick': ui.forgeItem = arg; break;
+    case 'forge-tab': ui.forgeTab = arg; break;
+    case 'upgrade': if (upgrade(state, arg)) sound(620); break;
+    case 'upgrade-max': { let n = 0; while (n < 200 && upgrade(state, arg)) n++; if (n) { sound(620); toast(`Tempered ${n} rank${n === 1 ? '' : 's'}.`, 'gold'); } break; }
+    case 'merge': { const item = merge(state, arg, Number(b.dataset.rarity)); if (item) { toast(`${item.name} forged.`, 'gold'); ui.forgeItem = item.id; } break; }
+    case 'craft': { const item = currentForgeItem(); const r = craft(state, item, arg); if (r.ok) { sound(560); toast(`${CRAFT_OPERATIONS[arg].name} used — now ${ITEM_RARITIES[item.rarity]}.`, 'gold'); } else toast(r.reason); break; }
+    case 'bench': { const r = benchCraft(state, currentForgeItem(), b.dataset.affix, Number(b.dataset.tier)); if (r.ok) { sound(560); toast(`Crafted ${r.affix} (T${r.tier}).`, 'gold'); } else toast(r.reason); break; }
+    case 'pick-slot': ui.skillSlot = Number(arg); break;
+    case 'assign': slotSkill(state, ui.skillSlot, arg); skillbarKey = ''; break;
+    case 'rank': if (investSkill(state, arg)) sound(700); break;
+    case 'rune': chooseRune(state, arg, b.dataset.rune); break;
+    case 'reset-skills': resetSkills(state); toast('Skill ranks reset.'); break;
+    case 'allocate': if (allocate(state, arg)) sound(740); break;
+    case 'tree-zoom': ui.treeZoom = Math.max(.6, Math.min(1.6, ui.treeZoom + Number(arg) * .2)); break;
+    case 'respec': confirmModal('Respec passives?', `Refund all ${state.tree.length} passive points for <b>${fmt(respecCost(state))} gold</b>.`, 'Respec', () => { if (respec(state)) toast('Passive points refunded.'); else toast('Not enough gold.'); after(); }); changed = false; break;
+    case 'world-tab': ui.worldTab = arg; break;
+    case 'map-cycle': ui.mapCycle = Number(arg); break;
+    case 'travel': if (travel(state, Number(arg))) { toast(`Stage ${state.stage} · ${region(state).name}`); ui.mapCycle = null; state.auto = true; } break;
+    case 'reroll': if (state.location === 'expedition') { startExpedition(state); toast('A fresh map.'); } break;
+    case 'claim': if (claimQuest(state, arg)) { toast('Reward claimed.', 'gold'); sound(660); } break;
+    case 'village': {
+      const go = () => { teleportVillage(state); ui.worldTab = 'rifts'; if (ui.sheet !== 'world') openSheet('world'); after(); };
+      if (state.location === 'rift' && !state.map.completed) { confirmModal('Abandon the rift?', 'Leaving closes this rift for good. Loot on the ground is collected.', 'Leave', go); changed = false; } else { go(); changed = false; }
+      break;
+    }
+    case 'open-rifts': ui.worldTab = 'rifts'; if (ui.sheet !== 'world') openSheet('world'); break;
+    case 'resume': resumeExpedition(state); closeSheet(); break;
+    case 'new-run': if (startVillageStage(state, state.maxStage)) closeSheet(); break;
+    case 'enter-rift': if (enterRift(state)) { closeSheet(); toast('The portal closes behind you.'); } break;
+    case 'open-rift': if (openRiftPortal(state, arg)) toast('Rift portal opened. One entry.', 'gold'); break;
+    case 'key-info': { const key = state.keystones.find(k => k.id === arg); if (key) modal('Keystone', keystoneDetail(key)); changed = false; break; }
+    case 'craft-key': { const input = $('key-level'), level = Math.max(1, Math.min(state.maxStage, Math.floor(Number(input?.value) || state.maxStage))); const r = craftKeystone(state, Number(arg), Math.random, level); toast(r.ok ? `${r.item.name} cut.` : r.reason, r.ok ? 'gold' : 'info'); break; }
+    case 'rename': modal('Name your hero', `<form id="rename-form"><label class="field">Hero name<input id="hero-name" value="${esc(state.name)}" maxlength="20" required autocomplete="off"></label><div class="actions"><button class="btn primary" type="submit">Save</button></div></form>`); changed = false; break;
+    case 'help': modal('How to play', helpContent()); changed = false; break;
+    case 'log': modal('Battle log', `<ul class="log">${state.log.map(l => `<li class="${l.type}">${esc(l.text)}</li>`).join('')}</ul>`); changed = false; break;
+    case 'sign-in': account?.signIn().catch(() => toast('Sign-in did not complete. Try again.')); changed = false; break;
+    case 'sign-out': persist(); closeModal(); account?.signOut(); changed = false; break;
+    case 'sync-now': cloud?.flush(); closeModal(); toast('Syncing…'); changed = false; break;
+    case 'use-device-save': if (cloud?.start(JSON.stringify(state))) { cloud.flush(); closeModal(); toast('This device now syncs to your account.', 'gold'); } changed = false; break;
+    case 'use-fresh-save': { const fresh = createGame(); if (cloud?.start(JSON.stringify(fresh))) { closeModal(); cloud.flush(); adoptState(fresh); toast('A new hero begins on your account.', 'gold'); } changed = false; break; }
+    case 'resolve-local': cloud?.resolve('local').then(ok => { if (ok) { closeModal(); toast('This device now syncs to your account.', 'gold'); } else if (cloud.status === 'conflict') conflictModal(); }); changed = false; break;
+    case 'resolve-cloud': cloud?.resolve('cloud').then(ok => { if (ok) { closeModal(); adoptRecord(cloud.record.payload); toast('Cloud progress restored.', 'gold'); } else if (cloud.status === 'conflict') conflictModal(); }); changed = false; break;
+    default: changed = false;
+  }
+  if (changed) after();
+}
+const currentForgeItem = () => forgeTarget(state, ui.forgeItem) || Object.values(state.equipment).find(Boolean) || state.inventory[0];
+function after() { updateHud(); renderSheet(); persist(); }
+
+document.addEventListener('click', e => {
+  const node = e.target.closest('[data-node]');
+  if (node) { ui.treeNode = ui.treeNode === node.dataset.node && allocate(state, node.dataset.node) ? node.dataset.node : node.dataset.node; after(); return; }
+  const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
+  act(b.dataset.act, b);
 });
-document.addEventListener('change',e=>{if(e.target.id==='inventory-sort'){inventorySort=e.target.value;renderSecondary();$('inventory-sort').focus();}if(e.target.id==='setting-motion'){state.settings.motion=e.target.checked;persist();}if(e.target.id==='setting-sound'){state.settings.sound=e.target.checked;$('sound-button').innerHTML=icon(state.settings.sound?'sound':'mute');$('sound-button').setAttribute('aria-label',state.settings.sound?'Mute sound':'Enable sound');sound();persist();}if(e.target.id==='craft-item'){selectCraftItem(e.target.value);renderSecondary();}if(e.target.id==='bench-affix'){selectBench(e.target.value,'');renderSecondary();}if(e.target.id==='bench-tier'){selectBench('',e.target.value);renderSecondary();}});
-document.addEventListener('submit',e=>{
- if(e.target.id==='loot-filter-form'){e.preventDefault();state.lootFilter=filterFromForm(e.target);$('dialog').close();update();persist();toast('Loot filter saved.');}
- if(e.target.id==='village-stage-form'){e.preventDefault();if(startVillageStage(state,Number(new FormData(e.target).get('stage')))){navigate('adventure');update();persist();}}
- if(e.target.id==='stage-travel-form'){e.preventDefault();const stage=Number(new FormData(e.target).get('stage'));if(travel(state,stage)){$('dialog').close();navigate('adventure');update();persist();}}
+document.addEventListener('change', e => {
+  const t = e.target, kind = t.dataset.change;
+  if (t.id === 'bag-filter') { ui.bagFilter = t.value; renderSheet(); }
+  else if (t.id === 'bag-sort') { ui.bagSort = t.value; renderSheet(); }
+  else if (t.id === 'bench-affix') { ui.benchAffix = t.value; ui.benchTier = null; renderSheet(); }
+  else if (t.id === 'bench-tier') { ui.benchTier = Number(t.value); renderSheet(); }
+  else if (kind === 'auto-skill') { state.skills.auto[t.dataset.arg] = t.checked; skillbarKey = ''; persist(); }
+  else if (kind === 'advance') { state.advance = t.checked; after(); }
+  else if (kind === 'set-sound') { state.settings.sound = t.checked; sound(); persist(); }
+  else if (kind === 'set-motion') { state.settings.motion = t.checked; persist(); }
+  else if (kind === 'set-potion') { state.settings.autoPotion = t.checked; persist(); }
 });
-document.addEventListener('input',e=>{if(e.target.closest('#loot-filter-form'))updateFilterPreview(state,e.target.closest('form'));});
-document.addEventListener('submit',e=>{if(e.target.id!=='rename-form')return;e.preventDefault();const name=$('hero-name').value.trim();if(!name){$('hero-name').setCustomValidity('Please enter a name.');$('hero-name').reportValidity();return;}state.name=name.slice(0,20);$('dialog').close();renderHero();renderSecondary();update();persist();toast('A new name. The same brave heart.','success');});
-document.addEventListener('input',e=>{if(e.target.id==='hero-name')e.target.setCustomValidity('');});
-$('dialog').addEventListener('click',e=>{if(e.target===$('dialog')){const r=$('dialog').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('dialog').close();}});
-document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.view)navigate(b.dataset.view);if(b.dataset.skill)processEvents(useSkill(state,b.dataset.skill));if(b.dataset.log){logMode=b.dataset.log;document.querySelectorAll('[data-log]').forEach(x=>x.classList.toggle('active',x===b));update();}if(b.dataset.action==='auto'&&state.location!=='village'){state.auto=!state.auto;update();persist();}if(b.dataset.action==='speed'){state.speed=state.speed===1?2:1;update();}if(b.dataset.action==='sound'){state.settings.sound=!state.settings.sound;b.innerHTML=icon(state.settings.sound?'sound':'mute');b.setAttribute('aria-label',state.settings.sound?'Mute sound':'Enable sound');sound();persist();}if(b.dataset.claim){if(claimQuest(state,b.dataset.claim)){toast('Quest rewards collected.','success');update();if(view==='journal')renderSecondary();persist();}}});
-document.addEventListener('change',e=>{if(e.target.id==='auto-advance'){state.advance=e.target.checked;persist();}});
-document.addEventListener('keydown',e=>{if(e.repeat||$('dialog').open||['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;const skill=SKILLS.find(s=>s.key===e.key);if(skill){e.preventDefault();processEvents(useSkill(state,skill.id));}if(e.code==='Space'&&state.location!=='village'&&!e.target.closest('button,a')){e.preventDefault();state.auto=!state.auto;update();}});
-mount();const battle=new Battlefield($('battle-canvas'),()=>state,(x,y,targetId)=>{if(!movePlayer(state,x,y,targetId))toast('Choose open ground or a revealed enemy.');update();},dropId=>{const events=[];if(collectLoot(state,dropId,events)){processEvents(events);persist();}});
-if(state.location==='village')navigate('village');
-let previous=performance.now(),uiElapsed=0;setInterval(()=>{const now=performance.now(),dt=Math.min(.5,(now-previous)/1000);previous=now;if(document.hidden)return;processEvents(tick(state,dt));uiElapsed+=dt;if(uiElapsed>.25){update();uiElapsed=0;}},100);
-setInterval(()=>{if(!document.hidden)persist();},5000);
-document.addEventListener('visibilitychange',()=>{if(document.hidden)persist();else{const rewards=offlineRewards(state);if(rewards)showOffline(rewards);previous=performance.now();update();}});
-window.addEventListener('pagehide',persist);
-function showOffline(r){const orbList=(r.orbs||[]).reduce((m,id)=>{m[id]=(m[id]||0)+1;return m;},{});const entries=Object.entries(orbList);const orbSummary=entries.map(([id,n])=>`${CRAFT_OPERATIONS[id].name} ×${n}`);const orbCount=entries.reduce((a,[,n])=>a+n,0);modal('The wild kept you company.',`<div class="offline-rewards">${icon('clock')}<div class="eyebrow">WELCOME BACK, ${esc(state.name.toUpperCase())}</div><h3>A little stronger than before.</h3><p>Your hero explored for ${Math.floor(r.seconds/3600)?`${Math.floor(r.seconds/3600)}h `:''}${Math.floor(r.seconds%3600/60)}m while you were away.</p><div class="reward-grid"><div>${icon('coin')}<strong>${fmt(r.gold)}</strong><span>Gold</span></div><div>${icon('star')}<strong>${fmt(r.xp)}</strong><span>Experience</span></div><div>${icon('sparkles')}<strong>${fmt(orbCount)}</strong><span>Orbs found</span></div></div>${orbSummary.length?`<p class="small-description">Found: ${esc(orbSummary.join(', '))}.</p>`:''}<p class="small-description">These rewards have been added to your hero.</p><button class="button gold-button" data-action="close">Continue the journey ${icon('arrow')}</button></div>`);persist();}
-if(loaded.migrated)toast('Your hero is ready for the new expeditions. Equipment and progress preserved.','success');
-if(loaded.offline)setTimeout(()=>showOffline(loaded.offline),600);if(loaded.recovered)toast('The previous save could not be read. A new journey has begun.');
+document.addEventListener('submit', e => {
+  e.preventDefault();
+  if (e.target.id === 'filter-form') {
+    const f = new FormData(e.target);
+    state.lootFilter = normalizeLootFilter({minRarity:Number(f.get('minRarity')), minItemLevel:Math.max(1, Math.floor(Number(f.get('minItemLevel')) || 1)), slots:f.getAll('slots'), affixes:f.getAll('affixes'), alwaysShowUnique:f.get('alwaysShowUnique') === 'on'});
+    closeModal(); toast('Loot filter saved.'); after();
+  }
+  if (e.target.id === 'rename-form') { const name = $('hero-name').value.trim(); if (name) { state.name = name.slice(0, 20); closeModal(); after(); } }
+});
+document.addEventListener('keydown', e => {
+  if (e.repeat || ['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
+  if ($('dialog').open) return;
+  const slot = '1234'.indexOf(e.key);
+  if (slot >= 0 && state.skills.slots[slot]) { e.preventDefault(); processEvents(useSkill(state, state.skills.slots[slot])); }
+  else if (e.key === 'q' || e.key === 'Q') { const events = []; if (usePotion(state, events)) processEvents(events); }
+  else if (e.code === 'Space' && state.location !== 'village' && !e.target.closest('button,a')) { e.preventDefault(); state.auto = !state.auto; updateHud(); }
+  else if (e.key === 'Escape' && ui.sheet) closeSheet();
+  else { const key = {c:'hero', i:'bag', b:'bag', s:'skills', p:'tree', t:'tree', f:'forge', m:'world', w:'world'}[e.key.toLowerCase()]; if (key && !e.ctrlKey && !e.metaKey && !e.altKey) openSheet(key); }
+});
+$('dialog').addEventListener('click', e => { if (e.target === $('dialog')) closeModal(); });
+document.addEventListener('gesturestart', e => e.preventDefault());
+
+// ---------- Boot ----------
+let battle = null;
+battle = new Battlefield($('battle-canvas'), () => state, (x, y, targetId) => { if (state.location !== 'village') { movePlayer(state, x, y, targetId); updateHud(); } }, dropId => { const events = []; if (collectLoot(state, dropId, events)) { processEvents(events); persist(); } });
+updateHud(); layout();
+addEventListener('resize', layout); wide.addEventListener('change', layout); new ResizeObserver(layout).observe($('hud-bottom'));
+let previous = performance.now(), slow = 0, mapTimer = 0;
+setInterval(() => {
+  const now = performance.now(), dt = Math.min(.5, (now - previous) / 1000); previous = now;
+  if (document.hidden) return;
+  processEvents(tick(state, dt));
+  updateHud();
+  slow += dt; mapTimer += dt;
+  if (mapTimer > .4) { mapTimer = 0; drawMinimap($('minimap'), state); $('minimap').hidden = state.location !== 'expedition'; }
+  if (slow > .6) {
+    slow = 0;
+    if (dockUpgrades < 0) dockUpgrades = upgradeCount(state);
+    const focus = document.activeElement;
+    if (sheetDirty && !(focus && ['SELECT','INPUT'].includes(focus.tagName) && $('sheet').contains(focus))) renderSheet();
+  }
+}, 100);
+setInterval(() => { if (!document.hidden) persist(); }, 5000);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) persist();
+  else { const rewards = offlineRewards(state); if (rewards) showOffline(rewards); previous = performance.now(); updateHud(); }
+});
+addEventListener('pagehide', persist);
+dockUpgrades = upgradeCount(state);
+if (loaded.migrated || (loaded.state.points > 0 && loaded.state.tree.length === 0 && loaded.state.level > 3)) toast('Your points were refunded for the new passive tree and skill ranks.', 'gold');
+if (loaded.offline) setTimeout(() => showOffline(loaded.offline), 500);
+if (loaded.recovered) toast('The previous save could not be read. A new journey has begun.');
+try { if (!localStorage.getItem('everfrost.help') && state.kills === 0) { localStorage.setItem('everfrost.help', '1'); setTimeout(() => modal('Welcome to Everfrost', helpContent()), 400); } } catch { /* storage optional */ }
+
 // Progressive enhancement for browsers implementing the page-scoped WebMCP registry.
-if(document.modelContext?.registerTool){
- const lifecycle=new AbortController();const register=tool=>{try{Promise.resolve(document.modelContext.registerTool(tool,{signal:lifecycle.signal})).catch(()=>{});}catch{}};
- register({name:'read_adventure',description:'Read the current hero, resources, stage, and battle status.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>({name:state.name,level:state.level,stage:state.stage,maxStage:state.maxStage,gold:state.gold,orbs:Object.fromEntries(Object.entries(state.orbs||{}).filter(([,n])=>n>0)),location:state.location,keystones:state.keystones.length,riftWave:state.rift?.wave||null,battleActive:state.auto&&state.location!=='village',stats:stats(state),expedition:{seed:state.map.seed,name:state.map.name,progress:state.map.progress,goal:state.map.goal,bossUnlocked:state.map.bossUnlocked},enemy:{name:state.enemy.name,tier:state.enemy.tier,modifiers:state.enemy.modifiers}})});
- register({name:'set_battle_active',description:'Resume or pause automatic battle using the same control as the visible interface.',inputSchema:{type:'object',properties:{active:{type:'boolean'}},required:['active'],additionalProperties:false},annotations:{readOnlyHint:false},execute:input=>{if(!input||typeof input.active!=='boolean'||Object.keys(input).some(k=>k!=='active'))throw Error('active must be a boolean');if(state.location==='village'&&input.active)throw Error('Use the expedition entrance or a portal to leave the Village first');state.auto=input.active;update();persist();return {battleActive:state.auto};}});
- window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});
+if (document.modelContext?.registerTool) {
+  const lifecycle = new AbortController();
+  const register = tool => { try { Promise.resolve(document.modelContext.registerTool(tool, {signal:lifecycle.signal})).catch(() => {}); } catch { /* optional */ } };
+  register({name:'read_adventure', description:'Read the current hero, resources, stage, and battle status.', inputSchema:{type:'object', properties:{}, additionalProperties:false}, annotations:{readOnlyHint:true},
+    execute:() => ({name:state.name, level:state.level, stage:state.stage, maxStage:state.maxStage, journey:journey(state), gold:state.gold, location:state.location, battleActive:state.auto && state.location !== 'village', passivePoints:state.points, skillPoints:state.skillPoints, skills:state.skills.slots, stats:combatStats(state), enemy:state.enemy ? {name:state.enemy.name, tier:state.enemy.tier, modifiers:state.enemy.modifiers} : null})});
+  register({name:'set_battle_active', description:'Resume or pause automatic battle using the same control as the visible interface.', inputSchema:{type:'object', properties:{active:{type:'boolean'}}, required:['active'], additionalProperties:false}, annotations:{readOnlyHint:false},
+    execute:input => { if (!input || typeof input.active !== 'boolean') throw Error('active must be a boolean'); if (state.location === 'village' && input.active) throw Error('Leave the Village first'); state.auto = input.active; updateHud(); persist(); return {battleActive:state.auto}; }});
+  addEventListener('pagehide', () => lifecycle.abort(), {once:true});
 }
+void SAVE_KEY; void SKILLS; void GEAR; void TREE_BY_ID; void TREE_EXTENT; void skillRank; void upgradeCost;

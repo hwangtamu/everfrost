@@ -2,8 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createGame,stats,combatStats,enemyStats,tick,useSkill,makeEnemy,makeItem,dropItem,collectLoot,saveGame,loadGame,offlineRewards,region,journey,defeatEnemy,startExpedition,salvageGold} from '../dist/engine.js';
 import {normalizeLootFilter,matchesLootFilter} from '../dist/loot-filter.js';
-import {combatMetrics,equipmentChanges} from '../dist/combat-ui.js';
-import {worldMapPanel} from '../dist/world-ui.js';
+import {compareItem,heroPanel,worldPanel} from '../dist/panels.js';
 import {distance} from '../dist/world.js';
 
 const fixed=()=>.6;
@@ -63,12 +62,12 @@ test('chill, enemy enhancements, and live metrics share the actual combat formul
   s.enemy.modifiers=['hasted','hasteAura','deadly'];const enemy=enemyStats(s,s.enemy);
   assert.equal(enemy.movementSpeed,2.1*1.25);assert.equal(enemy.attackSpeed,(1/2.3)*1.3*1.25);
   assert.equal(enemy.crit,.03+.2);assert.equal(enemy.critMultiplier,2);
-  assert.equal(combatMetrics(s).find(m=>m.id==='multiplier').value,'180%');
-  const item=makeItem('hand',0);item.affixes=[{id:'reach',value:.5},{id:'precision',value:3},{id:'ferocity',value:15}];
-  const changes=equipmentChanges(item,s);
-  assert.equal(changes.find(c=>c.label==='Attack range').delta,.5);
-  assert.equal(changes.find(c=>c.label==='Critical strike chance').delta,3);
-  assert.equal(changes.find(c=>c.label==='Critical strike multiplier').delta,15);
+  assert(heroPanel(s).includes('<span>Critical multiplier</span><b>180%</b>'));
+  // Comparisons ignore temporary chill and report real damage and toughness changes.
+  const better={...s.equipment.hand,id:'better',affixes:[{id:'precision',value:20},{id:'ferocity',value:40}]};
+  const gain=compareItem(s,better);assert(gain.dps>5);assert.equal(Math.round(gain.tough),0);
+  const tougher={...s.equipment.chest,id:'tough',affixes:[{id:'life',value:60}]};
+  const defense=compareItem(s,tougher);assert(defense.tough>5);assert.equal(Math.round(defense.dps),0);
 });
 
 test('offline rewards respond to movement speed and critical damage',()=>{
@@ -123,6 +122,6 @@ test('endless journeys cycle biomes and unlock stages beyond the original region
   for(const e of s.enemies.filter(e=>!e.boss))defeatEnemy(s,e,[],fixed);
   defeatEnemy(s,s.enemies.find(e=>e.boss),[],fixed);assert.equal(s.maxStage,20001);
   advance(s,3.2);assert.equal(s.stage,20001);assert.equal(region(s).name,'Mistwood');
-  const markup=worldMapPanel(s);assert.equal((markup.match(/data-travel=/g)||[]).length,20);
+  const markup=worldPanel(s,{worldTab:'map'});assert.equal((markup.match(/aria-label="Stage /g)||[]).length,20);
   assert(markup.includes('Journey 1001'));assert(markup.includes('20001'));
 });

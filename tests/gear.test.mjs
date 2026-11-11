@@ -5,10 +5,9 @@ import {createGame,makeItem,stats,equip,saveGame,loadGame,SAVE_KEY,dropItem,coll
 import {seededRandom} from '../dist/world.js';
 import {craft,benchCraft} from '../dist/crafting.js';
 import {normalizeLootFilter,matchesLootFilter} from '../dist/loot-filter.js';
-import {lootFilterPanel} from '../dist/loot-filter-ui.js';
 import {salvage,salvageGold,merge} from '../dist/engine.js';
 import {AFFIXES,UNIQUE_EFFECTS,uniquesForSlot,uniqueBonuses} from '../dist/loot.js';
-import {equippedPanel,inventoryPanel,inventoryCard,inventoryItems,salvageCandidates} from '../dist/inventory-ui.js';
+import {paperDoll,bagPanel,itemDetail,itemTile,inventoryItems,salvageCandidates,lootFilterForm} from '../dist/panels.js';
 
 test('44 unique items double each slot pool and all remain obtainable and saveable',()=>{
  const definitions=Object.values(UNIQUE_EFFECTS),items=new Map();
@@ -59,16 +58,17 @@ test('inventory cleanup respects filters and protects valuable or upgraded gear'
 
 test('equipment and inventory panels expose accessible inspection and cleanup controls',()=>{
  const s=createGame();const ring=makeItem('leftRing',1,10,()=>.5);ring.name='<script>unsafe</script>';s.inventory=[ring];
- const equipment=equippedPanel(s),panel=inventoryPanel(s,'rings','level'),card=inventoryCard(ring,s);
- assert.equal((equipment.match(/data-action="equipment"/g)||[]).length,11);
- assert(equipment.includes('Left ring'));assert(equipment.includes('Right ring'));
- assert(!equipment.includes('data-salvage='));assert(!card.includes('<script>'));
- assert(card.includes('&lt;script&gt;'));assert(card.includes('data-equip-slot="leftRing"'));assert(card.includes('data-equip-slot="rightRing"'));
- assert(card.includes('data-salvage="'+ring.id+'"'));assert(card.includes('aria-label="Inspect'));
- assert(panel.includes('value="level" selected'));assert(panel.includes('data-action="salvage-junk"'));
- assert(panel.includes('Salvage normal/magic (1)'));
- assert(inventoryPanel(s,'head').includes('No matching gear.'));
- s.inventory=[];assert(inventoryPanel(s).includes('Your satchel is empty.'));
+ const ui={bagFilter:'rings',bagSort:'level'};
+ const doll=paperDoll(s),panel=bagPanel(s,ui),card=itemDetail(s,ring),tile=itemTile(ring);
+ assert.equal((doll.match(/<button /g)||[]).length,11);
+ assert.equal((doll.match(/data-act="empty-slot"/g)||[]).length,9);assert.equal((doll.match(/data-act="equipped"/g)||[]).length,2);
+ assert(!doll.includes('data-act="salvage"'));assert(!card.includes('<script>'));assert(!tile.includes('<script>'));
+ assert(card.includes('&lt;script&gt;'));assert(card.includes('data-slot="leftRing"'));assert(card.includes('data-slot="rightRing"'));
+ assert(card.includes('data-act="salvage" data-arg="'+ring.id+'"'));assert(tile.includes('aria-label="&lt;script&gt;'));
+ assert(panel.includes('value="level" selected'));assert(panel.includes('data-act="salvage-junk"'));
+ assert(panel.includes('Salvage 1 ·'));assert(panel.includes('data-act="item" data-arg="'+ring.id+'"'));
+ assert(!bagPanel(s,{bagFilter:'head',bagSort:'recent'}).includes('data-act="item"'));
+ s.inventory=[];assert(bagPanel(s,{bagFilter:'all',bagSort:'recent'}).includes('Nothing here yet'));
 });
 
 test('rings fit either finger, contribute stats, craft and survive a save',()=>{
@@ -183,6 +183,6 @@ test('loot filters select each new slot and serialize eleven independent choices
   const filter=normalizeLootFilter({slots:[slot]});
   for(const other of GEAR_SLOTS)assert.equal(matchesLootFilter(makeItem(other),filter),other===slot);
  }
- const panel=lootFilterPanel(createGame());
+ const panel=lootFilterForm(createGame());
  assert.equal((panel.match(/name="slots"/g)||[]).length,11);
 });
