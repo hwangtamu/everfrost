@@ -1,8 +1,8 @@
 export const ENEMY_TIERS = {
   normal: {label: 'Normal', color: '#c1c9b6', life: 1, damage: 1, points: 1, reward: 1},
-  magic: {label: 'Magic', color: '#7fb9ed', life: 1.5, damage: 1.15, points: 2, reward: 1.8},
-  rare: {label: 'Rare', color: '#e4c570', life: 2.8, damage: 1.35, points: 5, reward: 3.5},
-  unique: {label: 'Unique', color: '#e4a16b', life: 6, damage: 1.6, points: 0, reward: 8}
+  magic: {label: 'Magic', color: '#7fb9ed', life: 2.4, damage: 1.2, points: 2, reward: 1.8},
+  rare: {label: 'Rare', color: '#e4c570', life: 7, damage: 1.5, points: 5, reward: 3.5},
+  unique: {label: 'Unique', color: '#e4a16b', life: 26, damage: 2, points: 0, reward: 8}
 };
 export const MODIFIERS = {
   empowered: {name: 'Empowered', description: 'Deals 40% increased damage.', kind: 'enhancement', icon: 'swords'},

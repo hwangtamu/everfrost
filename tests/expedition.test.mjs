@@ -153,7 +153,7 @@ test('affixes and unique powers affect actual hero stats and abilities',()=>{
   s.equipment.chest.unique='lastLight';s.hp=20;
   assert.equal(hurtHero(s,20,'fire'),15);
   s.level=3;s.equipment.neck=makeItem('neck',3,1,fixed);s.equipment.neck.unique='wildheart';s.hp=1;s.effects.chill=3;
-  useSkill(s,'mend',fixed);assert.equal(s.effects.chill,0);assert.equal(s.hp,1+stats(s).maxHp*.6);
+  useSkill(s,'mend',fixed);assert.equal(s.effects.chill,0);assert.equal(s.hp,1+stats(s).maxHp*.5);
 });
 
 test('a full inventory salvages guaranteed drops without exceeding capacity',()=>{

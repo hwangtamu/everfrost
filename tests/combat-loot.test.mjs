@@ -15,6 +15,7 @@ function scene(offset=1){
   const enemy=makeEnemy(s,'normal',{x:pos.x+offset,y:pos.y},s.map.route[0],fixed,[]);
   enemy.kind='wolf';enemy.hp=enemy.maxHp=1000000;enemy.baseDamage=0;
   s.enemies=[enemy,s.enemies.find(e=>e.boss)];s.enemy=enemy;s.player.targetId=enemy.id;
+  for(const id in s.skills.auto)s.skills.auto[id]=false; // these scenes measure exact basic-attack math
   return s;
 }
 function memory(){const data=new Map();return {getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v)};}
@@ -26,7 +27,7 @@ test('movement bonuses change distance traveled, and attack speed changes strike
   const from={x:slow.player.x,y:slow.player.y};tick(slow,.1,fixed);tick(fast,.1,fixed);
   assert(Math.abs(distance(fast.player,from)/distance(slow.player,from)-1.5)<1e-9);
   const normal=scene(),hasted=scene();hasted.equipment.hand.affixes=[{id:'haste',value:100}];
-  const a=advance(normal,11).filter(e=>e.type==='hit'),b=advance(hasted,11).filter(e=>e.type==='hit');
+  const a=advance(normal,8.5).filter(e=>e.type==='hit'),b=advance(hasted,8.5).filter(e=>e.type==='hit');
   assert.equal(a.length,10);assert.equal(b.length,20);
 });
 
@@ -48,9 +49,9 @@ test('critical chance and multiplier apply to basic attacks and damaging skills'
   s.attackTimer=10;const p=stats(s),hit=tick(s,.1,()=>.5).find(e=>e.type==='hit');
   assert(hit.critical);assert.equal(hit.value,Math.round(p.attack*p.critMultiplier));
   const skill=useSkill(s,'cleave',()=>.5).find(e=>e.type==='hit');
-  assert(skill.critical);assert.equal(skill.value,Math.round(p.attack*3*p.critMultiplier));
+  assert(skill.critical);assert.equal(skill.value,Math.round(p.attack*2.2*p.critMultiplier));
   s.level=5;const storm=useSkill(s,'storm',()=>.5).find(e=>e.type==='hit');
-  assert(storm.critical);assert.equal(storm.value,Math.round(stats(s).attack*5*p.critMultiplier));
+  assert(storm.critical);assert.equal(storm.value,Math.round(stats(s).attack*3.5*p.critMultiplier));
   const ordinary=scene();ordinary.attackTimer=10;
   assert.equal(tick(ordinary,.1,()=>.5).find(e=>e.type==='hit').critical,false);
 });

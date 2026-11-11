@@ -14,8 +14,8 @@ export class SaveConflict extends Error {
 export function validatePayload(payload) {
   if (typeof payload !== 'string' || payload.length < 10 || payload.length > MAX_PAYLOAD) throw Error('Bad payload size');
   const d = JSON.parse(payload);
-  if (!d || ![1,2,3,4].includes(d.version) || !Number.isInteger(d.level) || d.level < 1 || !Number.isInteger(d.stage) || d.stage < 1
-    || !Array.isArray(d.inventory) || !d.equipment || typeof d.equipment !== 'object' || !d.talents) throw Error('Bad payload');
+  if (!d || ![1,2,3,4,5].includes(d.version) || !Number.isInteger(d.level) || d.level < 1 || !Number.isInteger(d.stage) || d.stage < 1
+    || !Array.isArray(d.inventory) || !d.equipment || typeof d.equipment !== 'object' ) throw Error('Bad payload');
   return payload;
 }
 
