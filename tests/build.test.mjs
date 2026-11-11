@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,stats,combatStats,tick,useSkill,usePotion,hurtHero,makeEnemy,gainXp,xpRequired,learn,saveGame,loadGame,SAVE_KEY,travel,armorReduction,enemyBaseLife,enemyBaseDamage,claimQuest,QUESTS,POTION_KILLS,defeatEnemy} from '../dist/engine.js';
+import {createGame,offlineRewards,stats,combatStats,tick,useSkill,usePotion,hurtHero,makeEnemy,gainXp,xpRequired,learn,saveGame,loadGame,SAVE_KEY,travel,armorReduction,enemyBaseLife,enemyBaseDamage,claimQuest,QUESTS,POTION_KILLS,defeatEnemy} from '../dist/engine.js';
 import {SKILLS,SKILL_SLOTS,MAX_SKILL_RANK,RUNE_RANK,skillRank,skillParams,investSkill,chooseRune,slotSkill,resetSkills,activeRune} from '../dist/skills.js';
 import {TREE_NODES,TREE_BY_ID,allocate,canAllocate,respec,respecCost,treeBonuses,normalizeTree} from '../dist/tree.js';
 import {heroPanel,bagPanel,skillsPanel,treePanel,forgePanel,worldPanel,lootFilterForm,offlineSummary,helpContent,enemyDossier,bestComparison,isUpgrade} from '../dist/panels.js';
@@ -193,4 +193,41 @@ test('every panel renders for new, mid-game, village and rift heroes without uns
   assert(treePanel(s,ui).includes('Berserker'));
   const better={...s.equipment.hand,id:'x',itemLevel:30,implicits:{attack:200,defense:10,maxHp:50}};
   assert(isUpgrade(bestComparison(s,better)));assert(!isUpgrade(bestComparison(s,{...s.equipment.hand,id:'y',implicits:{attack:0,defense:0,maxHp:0}})));
+});
+
+test('idle heroes step out of telegraphed slams; friendly meteors are ignored',()=>{
+  const s=arena(1,30);for(const id in s.skills.auto)s.skills.auto[id]=false;s.player.manual=false;
+  s.hazards.push({kind:'slam',x:s.player.x,y:s.player.y,radius:2.7,remaining:1.5,total:1.5,damage:1e6,element:'physical'});
+  const hp=s.hp;for(let i=0;i<16;i++)tick(s,.1,fixed);
+  assert.equal(s.hazards.length,0);assert(s.hp>=hp-1,'the slam missed');assert(!s.player.dodging);
+  const t=arena(1,30);for(const id in t.skills.auto)t.skills.auto[id]=false;t.player.manual=false;
+  const at={x:t.player.x,y:t.player.y};t.hazards.push({kind:'meteor',friendly:true,x:at.x,y:at.y,radius:3,remaining:.7,total:.7,damage:10});
+  tick(t,.1,fixed);assert(!t.player.dodging);
+});
+
+test('fire ignites and lightning can shock',()=>{
+  const s=arena(1,30);for(const id in s.skills.auto)s.skills.auto[id]=false;
+  s.equipment.hand.affixes=[{id:'fire',value:40}];s.attackTimer=10;
+  tick(s,.1,()=>.99);const e=s.enemies[0];assert.equal(e.burn,20);assert(e.burnTime>2.8);
+  const hp=e.hp;s.attackTimer=-99;for(let i=0;i<10;i++)tick(s,.1,()=>.99);assert(Math.abs(hp-e.hp-20)<1,'burns for half the fire damage each second');
+  const l=arena(1,30);for(const id in l.skills.auto)l.skills.auto[id]=false;l.equipment.hand.affixes=[{id:'lightning',value:10}];
+  l.attackTimer=10;tick(l,.1,()=>.99);assert.equal(l.enemies[0].shocked||0,0);
+  l.attackTimer=10;tick(l,.1,()=>.1);assert(l.enemies[0].shocked>3);
+});
+
+test('guardians carry a regional trait, and a second one on later journeys',()=>{
+  const boss=stage=>{const s=createGame(1000,42);s.maxStage=stage;travel(s,stage);return s.enemies.find(e=>e.boss).modifiers;};
+  assert.deepEqual(boss(1),['earthshatter','empowered']);
+  assert.deepEqual(boss(6),['earthshatter','empowered','chilling']);
+  assert.deepEqual(boss(11),['earthshatter','empowered','burningAura']);
+  assert.equal(boss(16)[2],'hasted');assert.equal(boss(26).length,4);
+});
+
+test('time away brings back a few items without overfilling the bag',()=>{
+  const s=createGame(1_000_000,42),held=s.inventory.length;
+  const r=offlineRewards(s,1_000_000+8*3600*1000,fixed);
+  assert(r.kills>=320);assert.equal(r.items.length,8);assert.equal(s.inventory.length,held+8);
+  assert(r.items.every(i=>i.rarity>=1&&i.itemLevel===s.stage));
+  const full=createGame(1_000_000,42);while(full.inventory.length<47)full.inventory.push({...full.inventory[0],id:'x'+full.inventory.length});
+  assert.equal(offlineRewards(full,1_000_000+8*3600*1000,fixed).items.length,1);assert.equal(full.inventory.length,48);
 });

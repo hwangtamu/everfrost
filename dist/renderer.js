@@ -198,7 +198,7 @@ export class Battlefield{
         const hit=this.time-(this.hitTimes.get(e.x.toFixed(1)+','+e.y.toFixed(1))??-9);
         const size=e.boss?.68:e.tier==='rare'?.8:e.tier==='magic'?.68:.6;
         c.save();c.translate(px,py);c.scale(size*(e.x>s.player.x?1:-1),size);if(e.stunned>0)c.globalAlpha=.6;drawMonster(c,0,0,e.kind,motion?this.time+e.x:0,hit<.15?.15-hit:0,e.boss);c.restore();
-        if(e.chilled>0||e.shocked>0||e.stunned>0){c.beginPath();c.arc(px,py-(e.boss?70:38),3.5,0,Math.PI*2);c.fillStyle=e.stunned>0?'#ffe9a8':e.shocked>0?'#b6d9f5':'#9fd8ef';c.fill();}
+        if(e.chilled>0||e.shocked>0||e.stunned>0||e.burnTime>0){c.beginPath();c.arc(px,py-(e.boss?70:38),3.5,0,Math.PI*2);c.fillStyle=e.stunned>0?'#ffe9a8':e.shocked>0?'#b6d9f5':e.burnTime>0?'#f49c71':'#9fd8ef';c.fill();}
         if(e.hp<e.maxHp||selected||e.tier!=='normal'){const bw=e.boss?54:e.tier==='normal'?26:34;c.fillStyle='#0b1512dd';c.fillRect(px-bw/2-1,py+9,bw+2,5);c.fillStyle=e.tier==='normal'?'#d9584a':color;c.fillRect(px-bw/2,py+10,bw*e.hp/e.maxHp,3);}
       }
     }

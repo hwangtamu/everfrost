@@ -75,16 +75,32 @@ Aura modifiers additionally need `kind:'aura'` + `radius` + `color`; engine
 
 ## Add a skill
 
-`dist/engine.js`, `SKILLS` plus logic in `useSkill` and `skillTargets`:
+`dist/skills.js`, `SKILLS`:
 
 ```js
-{id:'ward', name:'Warden’s Vigil', icon:'shield', key:'4', level:7,
- cooldown:30, description:'Grant an absorb shield equal to 30% of your maximum health for 10 seconds.'},
+{id:'quake', name:'Quake', icon:'hammer', key:'9', level:28, cooldown:12, mana:24, kind:'attack', color:'#c9a36a',
+  mult:4, radius:3.5, description:'Split the ground around you.',
+  detail:p=>`${Math.round(p.mult*100)}% attack damage within ${p.radius.toFixed(1)} tiles.`,
+  runes:[{id:'fissure', name:'Fissure', description:'+1 tile radius.', mods:{radiusAdd:1}},
+         {id:'tremor', name:'Tremor', description:'Stuns enemies hit.', mods:{stun:true}}]}
 ```
 
-Add the effect in `useSkill`, a state field for the shield in `createGame`
-(e.g. `shield: 0`), decay/damage handling in `advanceStep` (`hurtHero`), and a
-UI status chip in `combat-statuses` (expedition-ui `updateExpedition`).
+1. `skillParams` already scales `mult`, `radius`, `cooldown`, `mana`, `heal`,
+   `duration`, `power`, `shield` and passes rune flags through.
+2. Add the effect branch in `engine.js::castSkill` (use `strikeEnemy` with
+   `{skill:id, chill, shock, stun, leech}` options).
+3. Teach `autoCast` when it is worth casting, and `skillTargets` if it needs
+   something other than "enemies within radius".
+4. Optional: a dedicated visual in `renderer.js` (`effects` of type `skill`).
+
+`kind` is `attack`/`spell` (needs a target), `heal` or `buff`.
+
+## Add a passive
+
+`dist/tree.js` builds the graph from `PATHS` (five small nodes, a notable and a
+keystone each) and `BRIDGES` (two small nodes and a notable between
+neighbouring paths). Stats are plain keys summed by `treeBonuses`; a new key
+needs a line in `STAT_TEXT` and a consumer in `engine.js::stats()`.
 
 ## Add a quest
 
@@ -95,8 +111,8 @@ UI status chip in `combat-statuses` (expedition-ui `updateExpedition`).
  target:3, value:s => s.bosses, gold:600},
 ```
 
-`value(s)` reads any live counter (`kills`, `crafted`, `bosses`, …). The
-journal, quest preview and claim logic need no other changes.
+`value(s)` reads any live counter (`kills`, `crafted`, `bosses`, …). Add `orbs:{chaos:1}` for an orb reward. The
+quest list and claim logic need no other changes.
 
 ## Add a crafting orb
 
@@ -106,15 +122,17 @@ journal, quest preview and claim logic need no other changes.
 mirror: {name:'Orb of Mirrors', flavor:'Duplicates the target item.', icon:'star', gold:9999},
 ```
 
-Implement the mutation branch in `craft(s, item, opId, rng)`, add its
-prerequisite in `crafting-ui.js::applicable`, and (recommended) a test in
-`tests/crafting.test.mjs`.
+Implement the mutation branch in `craft(s, item, opId, rng)` and add a test in
+`tests/crafting.test.mjs`. The forge panel lists every operation automatically.
 
 ## Change balance knobs
 
 | Knob | Location |
 |---|---|
-| Enemy HP/damage scaling | `makeEnemy` (`18 + stage^1.18 · 6`, `2.8 + stage·1.25`) |
+| Enemy life/damage scaling | `enemyBaseLife`, `enemyBaseDamage` (engine.js) |
+| Armor curve | `armorReduction` |
+| Pack sizes | `startExpedition` |
+| Skill numbers | `SKILLS`, `RANK_BONUS` (skills.js) |
 | Base combat values | `BASE_COMBAT` (engine.js) |
 | XP curve | `xpRequired` |
 | Drop chances | `defeatEnemy` + `lootRarity` |
@@ -131,4 +149,6 @@ prerequisite in `crafting-ui.js::applicable`, and (recommended) a test in
 - `tests/expedition.test.mjs` — maps (500 seeds), combat integrity (100 seeds),
   save/migration.
 - `tests/crafting.test.mjs` — tier gating, orb transitions, bench validation.
+- `tests/build.test.mjs` — skills, runes, auto-cast, passive tree, potions,
+  ailments, migration, panel rendering.
 - Run: `node --test tests/*.test.mjs`. Keep `pass` at 36+.

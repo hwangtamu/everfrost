@@ -1,6 +1,6 @@
 # Save format & persistence
 
-Storage: **localStorage**, key `everfrost.save.v1` (kept even at v4 so old
+Storage: **localStorage**, key `everfrost.save.v1` (kept even at v5 so old
 heroes migrate in place). Saves are origin-scoped; local and hosted URLs have
 separate saves. Clearing browser data removes progress.
 
@@ -8,7 +8,7 @@ separate saves. Clearing browser data removes progress.
 
 ```js
 {
-  version: 4,
+  version: 5,
   name: 'Wanderer',            // ≤20 chars
   level: 1, xp: 0,             // xp vs xpRequired(level)
   gold: 120, orbs: {transmute:0, augment:0, regal:0, alchemy:0, chaos:0, exalt:0, scour:0, divine:0}, // orbs only drop from kills
@@ -19,9 +19,13 @@ separate saves. Clearing browser data removes progress.
   auto: true, advance: true, speed: 1|2,
   inventory: [item...],        // ≤48
   equipment: {head, neck, shoulder, chest, wrist, hand, belt, leg, foot},  // item | null
-  talents: {might, guard, vigor, fortune},
-  points: 0,
-  cooldowns: {cleave, mend, storm},   // never persisted live; always reset to 0
+  points: 0, tree: ['war-0', ...],     // passive points left; allocated node ids
+  skillPoints: 0,
+  skills: {ranks:{cleave:3}, runes:{cleave:'rending'}, slots:[id|null ×4], auto:{id:bool}},
+  mana: 43,
+  potion: {charges: 3, progress: 0, lock: 0},
+  deathStreak: 0, castLock: 0, riftsCleared: 0,
+  cooldowns: {<every skill id>: 0},    // always reset to 0 on load
   enemy: null, enemies: [],    // live expedition (persisted for v2)
   attackTimer: 0, attackCount: 0, respawn: 0,
   log: [{id, text, type, time}],  // ≤30
@@ -29,7 +33,7 @@ separate saves. Clearing browser data removes progress.
   lastSave: 1688...,
   playTime: 0, runNumber: 0,
   tierKills: {normal, magic, rare, unique},
-  settings: {sound: false, motion: true},
+  settings: {sound: false, motion: true, autoPotion: true},
   hazards: [],                 // cleared on load
   effects: {chill: 0},         // reset on load
   died: false
@@ -72,11 +76,11 @@ are restored, not trusted.
 path** on any violation, which yields a fresh `createGame()` with
 `recovered: true`:
 
-1. `version ∈ {1, 2}`; integer level ≥1; stage ≥1; arrays/talents exist.
+1. `version ∈ {1…5}`; integer level ≥1; stage ≥1; inventory and equipment exist.
 2. Every inventory & equipment item passes `validItem` (id/name strings, valid
    slot, rarity 0–3, finite power ≥0, integer upgrade ≥0).
 3. `name` is non-empty, `log[]` entries have text + finite time, `claimed`
-   is an array, talents are non-negative integers.
+   is an array.
 4. All numeric resources (`gold, xp, hp, maxStage, kills, points,
    lastSave, bosses, crafted`) are finite and ≥0; each `orbs[id]` is a
    non-negative integer.
@@ -90,7 +94,7 @@ A saved v2 map is only trusted in full:
   `seen.length === 1564`.
 - `rooms.length === 9`; `topology === 'linear'`; `route.length === 9`, unique
   ids, each room's `id === index` and `order === position`.
-- `enemies` is a non-empty array (≤40), every enemy has a valid `roomId`, hp
+- `enemies` is a non-empty array (≤64), every enemy has a valid `roomId`, hp
   bounds, walkable position + home, and valid modifier ids.
 - Exactly **one boss**, and it is exactly the `unique` tier enemy.
 - Entrance/shrine/chest/rooms are all walkable points.
@@ -169,3 +173,20 @@ Version 3 migrates old weapon/armor/charm items into hand/chest/neck gear, prese
 Existing v1–v3 saves migrate to location expedition with an empty keystone pouch. Fields: location, returnPortal (ordinary expedition availability), keystones, riftPortal (committed keystone or null), rift ({keystone, wave, status}), expedition (suspended normal world while inside a rift), lastRift. Keystone shape: {id, kind:'keystone', name, rarity, itemLevel, modifiers:[{id,roll}]}. Rolls are 0–1 and modifier families cannot repeat.
 
 The suspended world includes stage, map, monsters, position, health, cooldowns, combat timers, hazards, ground drops, and auto setting, but does not roll back gold, experience, equipment, or other permanent rewards. Arena validation checks the fixed collision map, wave bounds and boss state. Corrupt rifts close with no renewed entry while restoring the normal expedition when valid. Pouch, portal and ground-drop IDs are deduplicated during load.
+
+## Builds (version 5)
+
+Version 5 replaced the four masteries with the passive tree and skill ranks.
+Loading an older save drops `talents` and refunds everything:
+`points = skillPoints = level − 1`, empty tree, default skill slots.
+
+For version 5 saves the build is repaired rather than rejected:
+
+- `tree` keeps only known node ids that are still connected to the origin
+  (`normalizeTree`); `points` is clamped to `level − 1 − tree.length`.
+- `skills.ranks` are clamped to 0–9 extra ranks for known skills;
+  `skillPoints` is clamped to `level − 1 − ranks spent`. Unknown runes are
+  dropped; `slots` must be four distinct known ids or it resets to the default.
+- `potion.charges` is clamped to the current maximum; `mana` to maximum mana.
+- Enemy status timers (`stunned`, `shocked`, `burnTime`) and hero effects are
+  reset.

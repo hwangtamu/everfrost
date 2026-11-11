@@ -190,7 +190,6 @@ function processEvents(events) {
       case 'riftWave': banner(e.wave === RIFT_WAVES ? 'Vharos arrives' : `Rift wave ${e.wave}`, '', e.wave === RIFT_WAVES ? 'boss' : ''); persist(); break;
       case 'riftComplete': banner('Rift conquered', 'Return to the Village', 'gold'); persist(); refreshSheet(); break;
       case 'riftFailed': banner('The rift closes', 'You fell inside', 'dead'); persist(); refreshSheet(); break;
-      case 'warning': if (wide.matches || !ui.sheet) toast('Slam incoming — move out of the circle!'); break;
       case 'chest': feed(`${icon('gem')} Hidden cache opened`); break;
       case 'newMap': skillbarKey = ''; refreshSheet(); break;
     }

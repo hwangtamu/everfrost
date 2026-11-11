@@ -27,9 +27,10 @@ export const region = s => REGIONS[regionIndex(s)];
 export const xpRequired = level => Math.round(45 * Math.pow(level, 1.38));
 export const BASE_COMBAT = {movementSpeed:5.8, attackInterval:.85, attackRange:1.9, critMultiplier:1.8, splash:.5, potionHeal:.4, potionCharges:3};
 export const POTION_KILLS = 14;
+export const IGNITE_RATE = .5, SHOCK_CHANCE = .15;
 // Enemy scaling outpaces raw levels, so later stages ask for upgrades, crafting and a build.
-export const enemyBaseLife = stage => (14 + 20 * Math.pow(stage,1.4)) * Math.pow(1.05,stage-1);
-export const enemyBaseDamage = stage => (2 + 1.5 * Math.pow(stage,1.2)) * Math.pow(1.035,stage-1);
+export const enemyBaseLife = stage => (14 + 20 * Math.pow(stage,1.4)) * Math.pow(1.055,stage-1);
+export const enemyBaseDamage = stage => (2 + 1.5 * Math.pow(stage,1.2)) * Math.pow(1.042,stage-1);
 // Armor mitigates a share of each physical hit; big hits punch through more of it.
 export const armorReduction = (defense,amount) => defense <= 0 ? 0 : Math.min(.85, defense / (defense + 3 * Math.max(1,amount)));
 const hasUnique = (s,key) => Object.values(s.equipment).some(i=>i?.unique===key);
@@ -186,7 +187,12 @@ export function startExpedition(s, seed = (Math.floor(Math.random()*4294967296) 
     }
   });
   const bossRoom = s.map.rooms.find(r => r.id === s.map.bossRoomId);
-  s.enemies.push(makeEnemy(s, 'unique', {x:bossRoom.x,y:bossRoom.y}, bossRoom.id, rng));
+  const guardian = makeEnemy(s, 'unique', {x:bossRoom.x,y:bossRoom.y}, bossRoom.id, rng);
+  // Each region's guardian fights differently; later journeys add a second trait.
+  const trait = [null,'chilling','burningAura','hasted'][regionIndex(s)];
+  if (trait) guardian.modifiers = [...guardian.modifiers, trait];
+  if (journey(s) > 1) guardian.modifiers = [...guardian.modifiers, ['regenerating','deadly','vampiric','armored'][(journey(s)+regionIndex(s)) % 4]];
+  s.enemies.push(guardian);
   s.map.goal = s.enemies.reduce((n,e) => n + e.points,0);
   selectTarget(s);
   return s.map;
@@ -362,7 +368,9 @@ function hitEnemy(s,enemy,physical,elemental,events,rng,critical = false,opts = 
   enemy.hp = Math.max(0,enemy.hp-dealt); enemy.awakened = true;
   events.push({type:'hit',value:dealt,x:enemy.x,y:enemy.y,critical,splash:!!opts.splash,skill:opts.skill||null});
   const p = stats(s); if (p.cold || opts.chill) enemy.chilled = Math.max(enemy.chilled||0, opts.chill ? 3 : 2);
-  if (opts.shock) enemy.shocked = 4;
+  // Elemental identity: cold chills, fire ignites, lightning can shock.
+  if (p.fire && !opts.dot) { enemy.burn = Math.max(enemy.burnTime > 0 ? enemy.burn : 0, p.fire * IGNITE_RATE * (critical ? 2 : 1)); enemy.burnTime = 3; }
+  if (opts.shock || (p.lightning && !opts.dot && rng() < SHOCK_CHANCE)) enemy.shocked = 4;
   if (opts.stun && !enemy.boss) enemy.stunned = 1.5;
   const leech = p.leech + (opts.leech||0);
   if (leech) s.hp = Math.min(p.maxHp,s.hp+actual*leech/100);
@@ -469,12 +477,13 @@ function advanceStep(s,dt,events,rng) {
   const enemy = selectTarget(s);
   autoCast(s,p,events,rng);
   player.pathTimer -= dt;
-  if (!player.manual && enemy?.hp > 0 && (!enemy.boss || s.map.bossUnlocked)) {
+  if (!player.manual && !player.dodging && enemy?.hp > 0 && (!enemy.boss || s.map.bossUnlocked)) {
     const inPosition=withinReach(s,player,enemy,p.attackRange-.25);
     if (!inPosition && player.pathTimer <= 0) {
       player.path = findPath(s.map,player,enemy); player.pathTimer = .65;
     } else if (inPosition) player.path = [];
   }
+  dodgeHazards(s,player);
   moveAlong(player,dt,p.movementSpeed);
   if (player.manual && !player.path.length) player.manual = false;
   reveal(s.map,player);
@@ -501,6 +510,7 @@ function advanceStep(s,dt,events,rng) {
     if (!e.awakened && withinReach(s,e,player,Math.max(5.5,p.attackRange+1))) e.awakened = true;
     if (!e.awakened) continue;
     e.chilled = Math.max(0,e.chilled-dt); e.shocked = Math.max(0,(e.shocked||0)-dt);
+    if (e.burnTime > 0) { e.burnTime -= dt; e.hp -= effectiveDamage(s,e,0,e.burn) * dt; if (e.hp <= 0) { defeatEnemy(s,e,events,rng); continue; } }
     if (e.stunned > 0) { e.stunned -= dt; continue; }
     if (e.modifiers.includes('regenerating')) e.hp = Math.min(e.maxHp,e.hp+e.maxHp*.01*dt);
     const ep=enemyStats(s,e);
@@ -562,6 +572,21 @@ function advanceStep(s,dt,events,rng) {
     return;
   }
   if(s.enemy?.hp<=0&&!s.map.completed)selectTarget(s);
+}
+
+// Idle heroes sidestep telegraphed ground attacks on their own: it costs attack
+// time rather than health. Chill or a late warning can still get them caught.
+function dodgeHazards(s,player){
+  const hazard=s.hazards.find(h=>!h.friendly&&h.remaining>0&&distance(player,h)<h.radius+.3);
+  if(!hazard){if(player.dodging){player.dodging=false;player.path=[];player.pathTimer=0;}return;}
+  if(player.dodging&&player.path.length)return;
+  const base=Math.atan2(player.y-hazard.y,player.x-hazard.x)||0;
+  for(const turn of [0,.6,-.6,1.2,-1.2,2,-2,Math.PI]){
+    const x=hazard.x+Math.cos(base+turn)*(hazard.radius+1),y=hazard.y+Math.sin(base+turn)*(hazard.radius+1);
+    if(!walkable(s.map,x,y))continue;
+    const path=findPath(s.map,player,{x,y});
+    if(path.length&&path.length<12){player.path=path;player.pathTimer=hazard.remaining+.2;player.dodging=true;return;}
+  }
 }
 
 // Keep packs readable: awakened enemies gently push apart instead of stacking.
@@ -655,7 +680,7 @@ export function claimQuest(s,id){
   return true;
 }
 
-export function offlineRewards(s,now=Date.now()){
+export function offlineRewards(s,now=Date.now(),rng=Math.random){
   const seconds=Math.min(28800,Math.max(0,(now-s.lastSave)/1000));s.lastSave=now;
   if(seconds>=60)for(const drop of [...(s.groundLoot||[])])collectLoot(s,drop.id);
   if(seconds<60||!s.auto||s.location==='village'||s.location==='rift')return null;
@@ -664,10 +689,17 @@ export function offlineRewards(s,now=Date.now()){
   const travelTime=3*BASE_COMBAT.movementSpeed/p.movementSpeed;
   const kills=Math.floor(seconds/(averageHealth/dps+travelTime)*.5);
   const gold=kills*(6+s.stage*2),xp=kills*(7+s.stage*2);
-  const orbs=offlineOrbs(kills);
+  const orbs=offlineOrbs(kills,rng);
   for(const orb of orbs)s.orbs[orb]=(s.orbs[orb]||0)+1;
   s.gold+=gold;gainXp(s,xp);s.hp=stats(s).maxHp;s.hazards=[];
-  return {seconds,kills,gold,xp,orbs};
+  // A few finds come home too: one piece per 40 kills, as far as the bag has room.
+  const items=[];
+  for(let i=Math.min(8,Math.floor(kills/40),48-s.inventory.length);i>0;i--){
+    const item=makeItem(GEAR_SLOTS[Math.floor(rng()*GEAR_SLOTS.length)],lootRarity(i%4===0?'rare':'magic',rng),s.stage,rng);
+    if(s.lootFilter&&!matchesLootFilter(item,s.lootFilter)){s.gold+=salvageGold(item);continue;}
+    s.inventory.unshift(item);items.push(item);
+  }
+  return {seconds,kills,gold,xp,orbs,items};
 }
 
 export function saveGame(s,storage=globalThis.localStorage,now=Date.now()){
@@ -775,7 +807,7 @@ function restoreMap(s,data){
   s.map=m;s.enemies=data.enemies;s.map.goal=s.enemies.filter(e=>!e.boss).reduce((n,e)=>n+ENEMY_TIERS[e.tier].points,0);
   s.map.progress=s.enemies.filter(e=>!e.boss&&e.hp<=0).reduce((n,e)=>n+ENEMY_TIERS[e.tier].points,0);
   s.map.bossUnlocked=s.map.progress>=s.map.goal;s.map.completed=s.enemies.find(e=>e.boss).hp<=0;
-  for(const e of s.enemies){e.points=ENEMY_TIERS[e.tier].points;e.path=[];e.pathTimer=0;e.attackTimer=0;e.slamTimer=5;e.chilled=0;e.stunned=0;e.shocked=0;e.rewarded=e.hp<=0;}
+  for(const e of s.enemies){e.points=ENEMY_TIERS[e.tier].points;e.path=[];e.pathTimer=0;e.attackTimer=0;e.slamTimer=5;e.chilled=0;e.stunned=0;e.shocked=0;e.burnTime=0;e.rewarded=e.hp<=0;}
   const p=data.player;
   s.player=p&&walkable(m,p.x,p.y)?{...p,path:[],pathTimer:0,manual:false}:{...m.entrance,path:[],pathTimer:0,manual:false,targetId:null};
   s.hazards=[];s.respawn=s.map.completed?3:0;selectTarget(s);return true;

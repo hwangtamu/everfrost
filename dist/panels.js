@@ -76,7 +76,7 @@ export function heroPanel(s) {
   <div class="power-pair"><div><small>Damage / sec</small><strong>${fmt(p.dps)}</strong></div><div><small>Toughness</small><strong>${fmt(p.toughness)}</strong></div></div></div>${paperDoll(s)}</div>
   <h4>Offense</h4><ul class="stat-list">
   ${row('Attack', num(p.attack))}${row('Attacks / sec', num(p.attackSpeed, 2))}${row('Critical chance', num(p.crit*100) + '%')}${row('Critical multiplier', num(p.critMultiplier*100, 0) + '%')}
-  ${row('Fire / Cold / Lightning', `${num(p.fire)} / ${num(p.cold)} / ${num(p.lightning)}`)}${row('Splash damage', num(p.splash*100, 0) + '%', 'to 3 foes beside your target')}${row('Skill damage', num(p.skillDamage*100, 0) + '%')}${row('Attack range', num(p.attackRange) + ' tiles')}</ul>
+  ${row('Fire / Cold / Lightning', `${num(p.fire)} / ${num(p.cold)} / ${num(p.lightning)}`, 'fire ignites · cold chills · lightning shocks')}${row('Splash damage', num(p.splash*100, 0) + '%', 'to 3 foes beside your target')}${row('Skill damage', num(p.skillDamage*100, 0) + '%')}${row('Attack range', num(p.attackRange) + ' tiles')}</ul>
   <h4>Defense</h4><ul class="stat-list">
   ${row('Health', fmt(p.maxHp))}${row('Armor', num(p.defense), 'blocks more of small hits')}${row('Elemental resistance', num(p.resist) + '%')}${row('Life regeneration', num(p.regen) + ' / sec')}${row('Life leech', num(p.leech) + '%')}${row('Damage taken', num(p.damageTaken*100, 0) + '%')}</ul>
   <h4>Utility</h4><ul class="stat-list">
@@ -238,7 +238,7 @@ export function lootFilterForm(s) {
 export function offlineSummary(s, r) {
   const counts = (r.orbs||[]).reduce((m,id) => (m[id] = (m[id]||0)+1, m), {}), orbCount = (r.orbs||[]).length;
   const h = Math.floor(r.seconds/3600), m = Math.floor(r.seconds%3600/60);
-  return `<p>Your hero kept fighting for <b>${h ? h+'h ' : ''}${m}m</b> at half pace.</p><div class="reward-row"><div>${icon('skull')}<b>${fmt(r.kills)}</b><small>Kills</small></div><div>${icon('coin')}<b>${fmt(r.gold)}</b><small>Gold</small></div><div>${icon('star')}<b>${fmt(r.xp)}</b><small>XP</small></div><div>${icon('sparkles')}<b>${orbCount}</b><small>Orbs</small></div></div>${orbCount ? `<p class="muted small">${Object.entries(counts).map(([id,n]) => `${esc(CRAFT_OPERATIONS[id].name)} ×${n}`).join(', ')}</p>` : ''}<div class="actions"><button class="btn primary" data-act="close">Back to the hunt</button></div>`;
+  return `<p>Your hero kept fighting for <b>${h ? h+'h ' : ''}${m}m</b> at half pace.</p><div class="reward-row"><div>${icon('skull')}<b>${fmt(r.kills)}</b><small>Kills</small></div><div>${icon('coin')}<b>${fmt(r.gold)}</b><small>Gold</small></div><div>${icon('star')}<b>${fmt(r.xp)}</b><small>XP</small></div><div>${icon('sparkles')}<b>${orbCount}</b><small>Orbs</small></div></div>${r.items?.length ? `<p class="small">Brought back: ${r.items.map(i => `<span class="c${i.rarity}">${esc(i.name)}</span>`).join(', ')}.</p>` : ''}${orbCount ? `<p class="muted small">${Object.entries(counts).map(([id,n]) => `${esc(CRAFT_OPERATIONS[id].name)} ×${n}`).join(', ')}</p>` : ''}<div class="actions"><button class="btn primary" data-act="close">Back to the hunt</button></div>`;
 }
 export const HELP = [
   ['swords','It fights for you','Your hero hunts through each map on their own, casting slotted skills automatically. Tap the ground to move, tap an enemy to focus it, tap a skill to cast it yourself.'],

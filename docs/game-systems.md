@@ -1,231 +1,174 @@
 # Game systems
 
-## Regions, stages, progression
+## Stages and progression
 
-```js
-REGIONS = [
-  Mistwood          · start 1  · Mistwood foes        · boss "The Hollow Guardian"
-  Frostfall Ridge   · start 6  · Frost foes           · boss "Hrim, the Frostborn"
-  Ember Hollow      · start 11 · Cinder foes          · boss "The Ashen King"
-  The Starless Wild · start 16 · Void foes            · boss "The Forgotten One"
-]
-```
+- Four regions — Mistwood, Frostfall Ridge, Ember Hollow, The Starless Wild —
+  of five stages each form a 20-stage **journey**; journeys repeat without end.
+  `regionIndex = floor(((stage−1) mod 20) / 5)`.
+- `maxStage` gates travel. With **auto-advance** on, clearing a guardian moves
+  to the next stage; off, the same stage is replayed on a fresh map (farming).
+- **XP**: `xpRequired(level) = round(45 · level^1.38)`. Each level grants one
+  passive point and one skill point, and refills health and mana.
+- **Enemy scaling** (`enemyBaseLife`, `enemyBaseDamage`):
+  `life = (14 + 20·stage^1.4) · 1.055^(stage−1)`,
+  `damage = (2 + 1.5·stage^1.2) · 1.042^(stage−1)`, then multiplied per tier.
+  The exponential term outruns levels alone: a hero who never equips or
+  allocates anything stalls near stage 5, and a well-built one meets real
+  resistance in the third journey.
 
-- Display numbering uses the absolute stage and journey: `journey = floor((stage-1)/20)+1`. There is no final-stage cap.
-- `region(s)` uses `floor(((stage-1)%20)/5)` so each new journey repeats the four regions at a higher stage level. World-map pages contain 20 stages and support direct travel to any unlocked stage.
-- `maxStage` gates travel between unlocked stages (via the World Map dialog);
-  each stage can be farmed with auto-advance off ("New map" rerolls the layout
-  of the current stage).
-- **XP curve**: `xpRequired(level) = round(45 · level^1.38)`; every level grants
-  one mastery point. Talents: might (+3 attack), guard (+2 defense),
-  vigor (+18 max HP), fortune (+1.5% crit chance per point).
+| Tier | Life | Damage | Seal points | Reward |
+|---|---|---|---|---|
+| Normal | ×1 | ×1 | 1 | ×1 |
+| Magic | ×2.4 | ×1.2 | 2 | ×1.8 |
+| Rare | ×7 | ×1.5 | 5 | ×3.5 |
+| Unique (guardian) | ×26 | ×2 | — | ×8 |
 
-## Character math (`stats` / `combatStats`)
+## Hero stats (`stats`, `combatStats`)
 
-Base values, then equipment power, then talents and affixes, then caps:
-
-| Stat | Formula (condensed) | Cap |
+| Stat | Formula | Cap |
 |---|---|---|
-| attack | `9 + 3·level + gear.attack + 3·might + affix.attack` | — |
-| defense | `2 + level + gear.defense + 2·guard + affix.defense` | — |
-| maxHp | `90 + 15·level + gear.maxHp + 18·vigor + affix.maxHp` | — |
-| crit | `8% + 1.5%·fortune + affix.critical/100` | 75% |
-| critMultiplier | `1.8 + affix.criticalMultiplier/100` | 4.0× |
-| attackSpeed | `(1 + haste/100) / 1.1` | haste ≤150% |
-| moveSpeed | `5.8 · (1 + movement/100)` | movement ≤100% |
-| attackRange | `1.9 + reach` | 6 tiles |
-| resist / leech / regen | affix-driven | 65% / 15% / — |
+| attack | `(9 + 3·level + gear + affixes) · (1 + tree attack%)` | — |
+| defense (armor) | `(2 + level + gear + affixes) · (1 + tree armor%)` | — |
+| maxHp | `(90 + 15·level + gear + affixes) · (1 + tree life%) · (1 − Momentum 15%)` | — |
+| crit chance | `8% + affixes + tree` | 75% |
+| crit multiplier | `180% + affixes + tree` | 500% |
+| attack speed | `(1 + haste%) / 0.85 s` | haste ≤150% |
+| movement | `5.8 · (1 + movement%)` | movement ≤100% |
+| attack range | `1.9 + reach` | 6 tiles |
+| resistance / leech | affixes + tree | 75% / 15% |
+| mana | `40 + 3·level + tree`; regen `(2.2 + 0.1·level) · (1 + tree%)`; +2 per kill | — |
 
-`combatStats` layers in chill (−25% speed & attack speed when `effects.chill>0`)
-and computes `averageHit` and `dps` (with the equipped unique "echo" at 125%).
-`equipmentChanges` in combat-ui compares `stats` around an item swap so a
-temporary chill cannot distort an upgrade decision.
-
-## Expedition maps (`world.js`)
-
-- Fixed 46×34 tile grid; `tiles[i]` 0 = wall, 1 = walkable.
-- 9 clearings in a 3×3 grid, carved with sizes/positions from the seed,
-  connected by one serpentine route. The intermediate room graph is a simple
-  path (degree ≤2), so there are **no loops and no shortcuts** — the 500-seed
-  test removes each interior clearing and asserts the entrance→boss path dies.
-- Roles: entrance (route[0]), boss sanctum (route[8]), a shrine + chest near
-  `route[3 + rand(3)]`, the remainder encounters.
-- Fog of war: `map.seen[]` revealed with `reveal()` around the hero (radius 7)
-  and around the boss display when unlocked (radius 4). A live minimap draws
-  seen tiles, hero, enemies, shrine, chest.
-
-## Enemy formation (`startExpedition`)
-
-- Encounter rooms are visited in route order; tiers per room:
-  - one random room (`2 + rand(3)`) hosts a **rare aura leader** (Guardian,
-    Frenzy, or Burning aura) flanked by a group of 4–6 normal minions
-    (5–7 total);
-  - the second room (or 23% of others) is a **magic pack** of 3–5 magic foes
-    (1 shared modifier);
-  - the rest are **normal packs** of 4–6 enemies.
-- A **unique guardian** always spawns in the boss room with `earthshatter +
-  empowered`.
-- Guardian bar: normal kills +1, magic +2, rare +5. Reaching `map.goal` breaks
-  the seal (`bossUnlocked`), reveals the guardian, and opens the sanctum.
-  Defeating the guardian sets `map.completed`, bumps `maxStage`, and (if auto
-  advance) starts the next stage after 3 seconds.
+- **Armor** reduces each physical hit by `armor / (armor + 3·hit)`, at most
+  85% — strong against swarms, weaker against heavy blows.
+- **Resistance** reduces fire, cold and lightning damage by its percentage.
+- `combatStats` adds chill (−25% speed), the Battle Cry bonus, average hit
+  (crit-weighted), `dps`, and `toughness` (health scaled by mitigation against
+  an on-level hit). Item comparisons use the change in `dps` and `toughness`.
+- **Ailments**: any fire damage ignites (burns for 50% of your fire damage per
+  second for 3 s; doubled by a critical); any cold damage chills (−20% enemy
+  speed); lightning has a 15% chance to shock (+20% damage taken for 4 s).
 
 ## Combat loop (`advanceStep`)
 
 ```
-cooldowns decay → if !auto return
-if map.completed → respawn countdown → stage++ (advance?) → startExpedition
-regen tick → selectTarget (route order, manual override preserved)
-path to target (findPath) unless in reach; moveAlong
-shrine heal / chest loot on proximity
-attack timer → strikeEnemy (crit roll, effectiveDamage, cold chill, leech)
-per awakened enemy:
-  regenerate / chase / attack hero / vampiric / chill touch
-  burning aura damage; earthshatter slam → telegraphed hazard
-hazards tick (volatile & slam AoE damage)
-hero death → respawn at camp, auto-pause, enemies recover HP/positions
+cooldowns, cast lock, potion lock decay
+if paused: stop
+effects tick (whirlwind hits, ward, cry, renewal)
+map complete? → countdown → next stage or fresh map
+regen health and mana → auto-potion below 35% → pick target → auto-cast
+dodge hostile ground attacks → path to target → move
+shrine (full heal, mana, potion charges) / cache
+basic attack: target at 100%, up to three foes within 1.8 tiles of it at splash% (50% base)
+each awakened enemy: status timers, burn, stun, regen, chase, attack, auras, slam
+separate overlapping enemies
+hazards: enemy slams/volatile hurt the hero; meteors hurt enemies; burning ground ticks
+death → recover at camp (second death on a map: retreat a stage, auto-advance off)
 ```
 
-The 100 ms tick is partitioned into ≤0.1 s steps so 2× speed stays stable and
-testable (`tests` drive `tick(s, .1)` directly).
+`tick` splits time into ≤0.1 s steps so 2× speed stays stable and testable.
 
-## Skills
+## Skills (`skills.js`, `castSkill`)
 
-| Skill | Level | Cooldown | Effect |
+Skills unlock at a hero level at rank 1. Each extra rank (skill points, up to
+rank 10) adds 12% to the skill's effect. Rank 4 opens a choice of two runes.
+Four slots; a skill must be slotted to be cast.
+
+| Skill | Lv | CD | Mana | Effect | Runes |
+|---|---|---|---|---|---|
+| Runic Cleave | 1 | 3 s | 6 | 220% attack to all within range + 1.1 | Rending (+40% damage) · Sweeping (+1.2 radius, chills) |
+| Forest Blessing | 3 | 14 s | 14 | Heal 35% (+2.5%/rank), cleanse chill | Renewal (4%/s for 5 s) · Quickening (−35% cooldown) |
+| Thunderstrike | 5 | 9 s | 20 | 350% attack as lightning within 6 | Overcharge (+50% damage, +50% cost) · Static Field (shock) |
+| Frost Leap | 8 | 7 s | 12 | Leap ≤8 tiles, 260% as cold within 2.6, chill | Avalanche (+1 radius, +20%) · Aftershock (stun 1.5 s) |
+| Whirlwind | 12 | 10 s | 18 | 3 s of 70% hits four times a second within 2.4 | Bloodstorm (6% leech) · Cyclone (+1.5 s) |
+| Battle Cry | 16 | 22 s | 16 | 8 s: +30% damage (+2.5%/rank), +20% attack speed | Rallying (heal 15%) · Intimidate (enemies −20% damage) |
+| Emberfall | 20 | 11 s | 28 | After 0.7 s, 700% as fire within 3 of the target | Cataclysm (+60%, +3 s) · Scorched Earth (burning ground) |
+| Stone Ward | 24 | 18 s | 14 | Absorb 30% of max health for 6 s | Bulwark (+50%) · Thorns (attackers take 100% attack) |
+
+Skill damage is further multiplied by tree skill damage and the Spellweave
+unique. Cooldowns recover faster with Sage's Crown and tree cooldown recovery.
+
+**Auto-cast** (`autoCast`) considers slotted skills in slot order, one cast per
+0.35 s: attacks fire on two or more targets or one tough target; Blessing
+below 55% health; Ward when hurt with enemies near; Battle Cry on four or more
+nearby enemies or an elite; Leap to close distance; Emberfall on elites or
+clusters; Whirlwind when three or more are in reach.
+
+## Potions
+
+Three charges (more from the tree). A charge restores 40% of maximum health,
+with a 1.2 s lockout. Kills build progress — 1/2/5 per normal/magic/rare, a
+full charge per guardian — and every 14 progress restores a charge. Shrines
+and recovering at camp refill them. Auto-potion (a setting) drinks at 35%.
+
+## Passive tree (`tree.js`)
+
+61 nodes: an origin, six paths of five small nodes, a notable and a keystone,
+and six hybrid bridges (two small nodes and a notable) linking neighbouring
+paths at their third node. A node can be allocated when it touches an owned
+node. `respecCost = 40 + nodes · 12 · max(1, floor(level/5))` gold.
+
+| Path | Small nodes | Notable | Keystone |
 |---|---|---|---|
-| Runic cleave (key 1) | 1 | 9 s | 3× attack damage, range = attackRange + 1.1 tiles |
-| Forest blessing (key 2) | 3 | 18 s | Heal 45% max HP + remove chill (Wildheart equipment → 60%) |
-| Thunderstrike (key 3) | 5 | 25 s | 5× attack as lightning, all visible enemies within 6 tiles |
+| Warrior | attack %, splash | Butcher | **Berserker** — 35% more damage, 15% more damage taken |
+| Assassin | crit chance, crit multiplier | Deadeye | **Perfect Strike** — +70% crit multiplier, non-crits deal 20% less |
+| Stalker | attack speed, movement, leech | Predator | **Momentum** — +30% attack speed, 15% less health |
+| Guardian | health %, armor % | Juggernaut | **Unbreakable** — 22% less damage taken, 12% less dealt |
+| Warden | resistance, regeneration, potion power | Oathkeeper | **Alchemist** — +2 potion charges, potions 20% stronger |
+| Mystic | mana, skill damage, cooldown | Runecaller | **Blood Rite** — skills cost health, +30% skill damage |
 
-Skills respect cooldowns, unlock levels, and the completed-map state; the UI
-disables them with "No targets in range" when nothing is reachable.
+## Maps (`world.js`) and packs (`startExpedition`)
 
-## Loot & crafting
+- A 46×34 grid with nine clearings on one winding route: entrance, six
+  encounter rooms, a shrine room with a cache, and the guardian's sanctum.
+- Encounter rooms hold a normal pack (6–9), a magic pack (4–6, one shared
+  modifier), or a rare aura leader with 6–8 normal minions. At most 55 enemies.
+- Killing non-boss enemies adds their seal points; at the goal the guardian is
+  revealed. Guardians always have Earthshatter and Empowered, plus a regional
+  trait (Frostfall: Chilling Touch; Ember Hollow: Burning Aura; Starless Wild:
+  Hasted) and one more from the second journey on.
+- The hero sidesteps hostile ground attacks automatically (`dodgeHazards`).
 
-### Drops
+## Loot
 
-| Enemy tier | Drop chance | Guaranteed floor | Always yields |
-|---|---|---|---|
-| normal | 30% | — | 1 item |
-| magic | 70% | — | 1 item |
-| rare | 100% | magic-or-better | 1 item |
-| unique (guardian) | 100% | two rare-or-better | 2 items |
-
-`lootRarity` maps an enemy roll to normal/magic/rare/unique with tuned
-thresholds per tier. Rare leaders & guardians drive the equipment economy.
-
-### Explicit modifiers (`loot.js`)
-
-PoE-style rules (added in v2.2):
-
-- Every affix is a **prefix** or **suffix**; each side holds at most **3**.
-- **Rarity ⇒ mod count**: Normal 0 · Magic 1–2 · Rare 4–6 (2–3 prefixes, 2–3
-  suffixes) · Unique 3+3.
-- Each family has **5 tiers**; Tier 1 is strongest and requires item level 19,
-  Tier 5 rolls at level 1 (gates: 1/4/8/13/19). Values roll uniformly inside
-  the tier's range.
-- `makeAffix` weights tiers toward the weaker end; high item levels can roll
-  the best tiers.
-- Item level = stage of the drop; `merge` carries the highest contributor's
-  item level into the forged unique-family result.
-
-### Crafting bench (`crafting.js`)
-
-Orbs can only be found by defeating enemies (`defeatEnemy` rolls per-tier drops:
-normals and magics have a chance at common orbs, rare leaders drop a regal-tier
-orb, and stage guardians drop two divine-tier orbs). Applying an orb consumes
-one copy plus `gold` (scaling with item level) and mutates in place. The
-deterministic bench costs gold only:
-
-| Orb | Effect | Base gold cost |
+| Enemy tier | Drop chance | Notes |
 |---|---|---|
-| Transmutation | normal → magic (1–2 mods) | 20 |
-| Augmentation | +1 mod to magic | 35 |
-| Regal | magic → rare, +1 mod | 90 |
-| Alchemy | normal → rare (full roll) | 110 |
-| Chaos | reroll rare | 150 |
-| Exalted | +1 mod to rare | 240 |
-| Scouring | strip to normal | 30 |
-| Divine | reroll values, keep tiers | 70 |
+| Normal | 14% | |
+| Magic | 50% | |
+| Rare | 100% | magic or better |
+| Guardian | 100% | two items, rare or better |
 
-**Bench crafting** (deterministic): pick a modifier + tier on a magic/rare
-item; enforces slot caps, duplicate bans, item-level gating, and a price that
-rises with tier and item level. Every successful craft increments
-`state.crafted`, feeding the forge quest.
+- Items drop on the ground and are collected after 2.4 s (or on tap). Drops
+  that fail the loot filter become gold. A full 48-slot bag salvages new
+  drops.
+- **Implicits**: `rate × item level × (0.95–1.05)` per slot; tempering adds
+  10% of the base per rank (`40·(rank+1)` gold).
+- **Explicit modifiers**: prefixes and suffixes, three of each at most, five
+  tiers gated by item level (1/4/8/13/19). Magic 1–2, rare 4–6, unique 3+3
+  plus a named power.
+- **Orbs** drop only from enemies (and quests): Transmutation, Augmentation,
+  Regal, Alchemy, Chaos, Exalted, Scouring, Divine. Each use also costs gold.
+- **Bench**: add a chosen modifier at a chosen tier for gold.
+- **Merge**: three bag items of one slot and rarity → the next rarity, 75 gold.
 
-### Forge & salvage
+## Village and rifts
 
-- **Upgrade**: each rank costs `40·(n+1)` gold and adds 10% of the original implicit stats.
-- **Merge**: 3 unequipped items, same slot + rarity → next rarity (75 gold); retains the highest item level and upgrade rank and rolls new implicits.
-- **Salvage**: gold = `round((2 + 3·rarity + upgrade) · (1 + ilvl·0.25))`; a full
-  48-slot satchel auto-salvages new drops the same way.
+- Teleporting to the Village freezes the expedition exactly; resuming returns
+  to it. Keystones are cut and opened only in the Village.
+- A keystone has a level and 0–6 modifiers by rarity (monster damage, life,
+  speed, pack size, damage reduction, critical chance); each adds item level,
+  quantity and rarity to the rewards.
+- A rift is a 24×18 arena: four waves of `6 + 2·wave` enemies (more with
+  Crowded), then Vharos. Death or leaving ends it; clearing it counts toward
+  quests.
 
 ## Quests
 
-| Quest | Condition | Reward |
-|---|---|---|
-| Into the wild | 10 kills | 150 gold |
-| A sharper edge | 3 forges/merges/crafts | 200 gold |
-| The forest remembers | 1 guardian | 400 gold |
-
-Claiming is one-time (`state.claimed`) and validated against the live value.
+Sixteen one-time deeds (`QUESTS`) tracking kills, guardians, level, highest
+stage, crafting, passives and rifts. Rewards are gold and sometimes orbs.
 
 ## Offline rewards
 
-- On return, `max(0, now − lastSave)` capped at **8 hours** (28 800 s);
-  requires `auto === true` and ≥60 s away.
-- Modeled at **50% combat efficiency**: estimated kill time =
-  `averageHealth/DPS + travelTime`, then `kills = floor(elapsed / killTime · 0.5)`.
-- Grants gold, XP (+level-ups), and randomly rolled orbs (common ~1-in-8
-  simulated kills, regal-tier ~1-in-7, divine-tier ~1-in-29). **Never advances
-  maps, stages or quests.**
-
-## Settings & accessibility
-
-- Toggleable synthesized audio (WebAudio blips) and ambient motion; both honor
-  `prefers-reduced-motion`.
-- Keyboard: 1/2/3 skills, Space pause, arrows move when the canvas is focused.
-- Mobile bottom nav + desktop sidebar; dialog focus containment; visible focus
-  rings; save status indicator.
-
-## WebMCP (progressive enhancement)
-
-If the browser exposes `document.modelContext`, two page-scoped tools register
-(aborted on pagehide): `read_adventure` (read-only hero/resource/expedition/
-enemy snapshot) and `set_battle_active` (validated pause/resume mirroring the
-UI control).
-## Ground loot and customizable filters
-
-`defeatEnemy` and chests call `dropItem`, creating an entry in `groundLoot` rather than placing equipment directly in the inventory. Canvas labels use rarity colors, with beams for rare and unique equipment. Drops auto-collect after 2.4 game seconds while battle is active. Clicking a label or Collect now calls `collectLoot` immediately. Map changes collect outstanding drops first, and pending drops survive saves.
-
-`loot-filter.js` evaluates minimum rarity, permitted slots, minimum item level, and an OR match across selected affix families; these groups combine with AND. `alwaysShowUnique` bypasses those conditions. The filter gates pickups: unmatched drops convert to gold (the normal salvage value) and are logged separately, while matching drops enter the satchel. Existing inventory items are never processed retroactively. Inventory capacity remains 48 with automatic salvage on overflow.
-
-## Eleven-slot gear and implicit stats
-
-Equipment slots: head, neck, shoulder, chest, wrist, hand, belt, leg, foot, leftRing, rightRing. Runic Bands fit either finger and share attack/life implicits and affix pools. `gear.js` defines each slot's damage, armor, and life rates. Each implicit rolls `rate × itemLevel × uniform(0.95, 1.05)`, rounded to one decimal. Rarity does not multiply base stats. All equipped implicits contribute to combat along with explicit modifiers. Each forge rank adds 10% of the original base values; orb/bench crafting changes only explicits. Merging preserves the highest contributor item level (or current stage) and upgrade rank, with a fresh implicit roll. Unique powers work in any applicable slot and do not stack duplicate powers. `UNIQUE_EFFECTS` in `loot.js` holds a pool of named powers per slot — each unique drop rolls one power from its slot's pool, and the item name is `power name + base name`. Powers either carry `stats` (flat or per-item-level bonuses folded into `stats()` like affixes) or a special mechanic applied by id in the engine:
-
-The catalog contains 44 distinct uniques: six each for hand and neck, four for each other gear type. Both fingers share the same four ring uniques. Unique rarity drop chances are unchanged; selection within each slot pool is uniform.
-
-- hand: Dawn's Echo (every fourth attack strikes twice), Stormbrand (+30% of attack as lightning on strikes), Executioner's Oath (+80% damage below 35% enemy health), Frostfang (cold damage and reach), Bloodreaver (attack and leech), Sunbreaker (fire damage and critical multiplier)
-- neck: Wildheart (healing skills +15% max health), Eye of the Tempest (+15% resist, +8% crit), Crimson Chalice (4% leech, regen per item level), Winter Oracle (cold damage and resistance), Stormglass (lightning damage and attack speed), Oath of Giants (life and reach)
-- head: Sage's Crown (cooldowns recover 30% faster), Starkonja's Pelt (+8% crit, +12% attack and movement speed), Ravenlord (critical chance and multiplier), Hollow Monarch (life and regeneration)
-- shoulder: Spikeward (reflects 35% of physical damage taken), Aegis of Dawn (defense per item level, +10% resist), Ashwing (fire damage and movement), Glacial Bastion (cold damage and defense)
-- chest: Last Light (25% less damage below 35% health), Stoneheart (12% less damage from all sources), Briarheart (life and regeneration), Void Carapace (defense and resistance)
-- wrist: Warbringer (attack per item level, 3% leech), Spellweave (skills +25% damage), Duelist's Vow (attack speed and reach), Thundercoil (lightning damage and critical chance)
-- belt: Soulgorge (+25% attack/movement speed for 6s on kill), Gravebind (+6% max health on kill), Serpent Coil (leech and attack speed), Hearthkeeper (regeneration and life)
-- leg: Ironstride (chill immunity, +15% movement), Titanplate (defense and life per item level), Outrider (movement and attack), Duskwarden (resistance and life)
-- foot: Windrunner (+45% movement speed), Emberwalk (20% less elemental damage taken), Ghoststep (movement and reach), Dawnmarch (movement, regeneration, and defense)
-- either ring: Ember Signet (fire damage per level, +5% crit), Moonwell (regeneration per level, +12% resistance), Rimecircle (cold damage and critical multiplier), Stormknot (lightning damage and attack speed). Wearing two of the same power uses only the highest-item-level power; both rings still contribute implicits and affixes.
-
-The inventory groups equipped gear into Armor, Hands, and Jewelry. Satchel cards expose inspection, direct equip (either finger for rings), and salvage, with sorting by newest, rarity, item level, or slot. Bulk normal/magic salvage only includes unupgraded non-unique items in the active slot filter. Confirmation snapshots item IDs and displays names and total gold, so later drops are not accidentally included. Individual rare, unique, or upgraded items also require confirmation.
-
-## Village and keystone rifts
-
-- Location is expedition, village, or rift. Teleport to the Village at any time. Normal maps retain the hero position, enemy health, progress, timers, and ground loot. Returning resumes that map; the entrance starts a new map of an unlocked stage and replaces the return point.
-- Craft keystones only in town, choosing any level up to maxStage. Recipes consume orbs atomically: normal 3 Transmutation; magic 3 Transmutation + 2 Augmentation; rare 2 Alchemy + 1 Regal; unique 2 Exalted + 2 Divine.
-- Keystone drop chances by enemy tier: normal 0.3%, magic 1%, rare 4%, unique 12%. Conditional keystone rarity weights: normal 45%, magic 37%, rare 15.5%, unique 2.5%. They use a separate, paginated pouch and bypass equipment filters.
-- Keystone mod counts: normal 0, magic 1–2, rare 3–4, unique 6 distinct mods. Brutal adds monster damage, Stalwart life, Quickened speed, Crowded pack size, Warded damage reduction, and Ruinous critical chance. Every mod also increases reward item level, quantity, and rarity. Values are shown before portal opening.
-- Opening consumes the keystone and creates one pending portal; entering consumes that portal. The ordinary expedition is suspended separately. Teleporting out or dying ends a rift permanently. The normal return point survives.
-- The 24×18 arena spawns four packs, then Vharos. The next wave is immediate after the last kill. Base monster life/damage are +20%/+10%; the boss additionally has 2.2× life and 1.5× damage. Rifts never advance maxStage or normal guardian achievements. The winner stays in the cleared arena to collect and return.
-- Quantity multiplies equipment roll count, with a probabilistic extra roll for the fractional part. Rarity divides the rarity roll by 1 + bonus/100. Item level is keystone level + modifier bonuses. These bonuses do not alter already rolled items.
-- Village and rifts grant no offline farming. An unfinished rift resumes after reload without another portal entry; death, entry, opening, and wave transitions persist immediately in the UI.
+Requires the fight to be running and at least 60 s away; capped at 8 hours and
+modelled at half efficiency from current `dps`. Grants gold, experience, orbs
+and one item per 40 kills (at most 8, and only into free bag space). Never
+advances stages or quests. The Village and rifts earn nothing.
