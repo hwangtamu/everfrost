@@ -1,6 +1,6 @@
 // Browser shell: full-screen battlefield, HUD, slide-over panels, input,
 // persistence and cloud sync. Game rules live in engine.js; panel markup in panels.js.
-import {SAVE_KEY,SKILLS,stats,combatStats,region,journey,xpRequired,tick,useSkill,usePotion,equip,salvage,salvageGold,upgrade,upgradeCost,merge,travel,claimQuest,loadGame,saveGame,createGame,offlineRewards,startExpedition,movePlayer,collectLoot,teleportVillage,resumeExpedition,startVillageStage,craftKeystone,openRiftPortal,enterRift,POTION_KILLS} from './engine.js';
+import {SAVE_KEY,SKILLS,stats,combatStats,region,journey,xpRequired,tick,useSkill,usePotion,equip,salvage,salvageGold,upgrade,upgradeCost,merge,travel,claimQuest,loadGame,saveGame,createGame,offlineRewards,startExpedition,movePlayer,collectLoot,teleportVillage,resumeExpedition,startVillageStage,craftKeystone,openRiftPortal,enterRift,POTION_KILLS,toggleLock,gamble,equipUpgrades} from './engine.js';
 import {SKILL_BY_ID,skillRank,skillParams,investSkill,chooseRune,slotSkill,resetSkills} from './skills.js';
 import {allocate,respec,respecCost,TREE_BY_ID,TREE_EXTENT} from './tree.js';
 import {GEAR,RING_SLOTS} from './gear.js';
@@ -17,7 +17,7 @@ import {esc,fmt,heroPanel,bagPanel,skillsPanel,treePanel,forgePanel,worldPanel,i
 
 const loaded = loadGame();
 let state = loaded.state;
-const ui = {sheet:null, bagFilter:'all', bagSort:'recent', skillSlot:0, treeZoom:.8, treeNode:null, forgeItem:null, forgeTab:'upgrade', benchAffix:null, benchTier:null, worldTab:'map', mapCycle:null};
+const ui = {sheet:null, bagFilter:'all', bagSort:'recent', skillSlot:0, treeZoom:.8, treeNode:null, forgeItem:null, forgeTab:'upgrade', fresh:new Set(), benchAffix:null, benchTier:null, worldTab:'map', mapCycle:null};
 const $ = id => document.getElementById(id);
 const wide = matchMedia('(min-aspect-ratio: 1/1)');
 const SHEETS = {hero:['Hero','user'], bag:['Bag','bag'], skills:['Skills','zap'], tree:['Passives','nodes'], forge:['Forge','hammer'], world:['World','map']};
@@ -130,12 +130,14 @@ function badge(id, text) { const el = $(id).querySelector('.badge'); if (cache.g
 // ---------- Sheet ----------
 function openSheet(name) {
   if (ui.sheet === name) return closeSheet();
+  if (ui.sheet === 'bag') ui.fresh.clear();
   ui.sheet = name; $('sheet').hidden = false; document.body.classList.add('sheet-open');
   document.querySelectorAll('#dock button').forEach(b => b.classList.toggle('on', b.dataset.arg === name));
   $('sheet-title').innerHTML = `${icon(SHEETS[name][1])} ${SHEETS[name][0]}`;
   renderSheet(true); layout(); setTimeout(layout, 220);
 }
 function closeSheet() {
+  if (ui.sheet === 'bag') ui.fresh.clear();
   ui.sheet = null; $('sheet').hidden = true; document.body.classList.remove('sheet-open');
   document.querySelectorAll('#dock button').forEach(b => b.classList.remove('on')); layout();
 }
@@ -180,7 +182,8 @@ function processEvents(events) {
       case 'kill': kills++; if (e.boss) sound(110, .5, 'sawtooth'); break;
       case 'level': banner(`Level ${e.value}`, '+1 passive point · +1 skill point', 'gold'); sound(660, .3); skillbarKey = ''; refreshSheet(); if (e.value === 2) toast('Points to spend: open Passives and Skills in the dock.', 'gold'); break;
       case 'unlock': toast(`New skill: ${e.name}`, 'gold'); skillbarKey = ''; break;
-      case 'loot': if (state.inventory.length === 48 && !bagWarned) { bagWarned = true; toast('Bag full — new drops are salvaged. Tap Bag to clear it out.'); } if (state.inventory.length < 44) bagWarned = false; if (e.item.rarity >= 1) feed(`${icon('bag')} <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); if (e.item.rarity >= 3) { toast(`Unique found: ${e.item.name}`, 'gold'); sound(880, .4); } if (ui.sheet === 'bag' || ui.sheet === 'forge') refreshSheet(); dockUpgrades = -1; break;
+      case 'autoEquip': feed(`${icon('up')} Equipped <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); refreshSheet(); break;
+      case 'loot': ui.fresh.add(e.item.id); if (state.inventory.length === 48 && !bagWarned) { bagWarned = true; toast('Bag full — new drops are salvaged. Tap Bag to clear it out.'); } if (state.inventory.length < 44) bagWarned = false; if (e.item.rarity >= 1) feed(`${icon('bag')} <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); if (e.item.rarity >= 3) { toast(`Unique found: ${e.item.name}`, 'gold'); sound(880, .4); } if (ui.sheet === 'bag' || ui.sheet === 'forge') refreshSheet(); dockUpgrades = -1; break;
       case 'orb': feed(`${icon('sparkles')} <span class="c2">${esc(e.name)}</span>`); if (ui.sheet === 'forge' || ui.sheet === 'world') refreshSheet(); break;
       case 'keystone': feed(`${icon('portal')} <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); toast('Keystone found — open it in the Village.', 'gold'); persist(); break;
       case 'bossReady': banner('Seal broken', 'The guardian is revealed', 'boss'); sound(140, .5, 'sawtooth'); break;
@@ -254,16 +257,12 @@ function showOffline(r) { modal('While you were away', offlineSummary(state, r))
 
 // ---------- Actions ----------
 function inspect(id, equipped) {
+  ui.fresh.delete(id);
   const item = equipped ? Object.values(state.equipment).find(i => i?.id === id) : state.inventory.find(i => i.id === id);
   if (item) modal(equipped ? 'Equipped' : 'Item', itemDetail(state, item, {equipped}));
 }
 function equipBest() {
-  let count = 0;
-  for (let guard = 0; guard < 30; guard++) {
-    const best = state.inventory.map(item => ({item, c:bestComparison(state, item)})).filter(x => isUpgrade(x.c)).sort((a,b) => (b.c.dps + b.c.tough) - (a.c.dps + a.c.tough))[0];
-    if (!best || !equip(state, best.item.id, best.c.slot)) break;
-    count++;
-  }
+  const count = equipUpgrades(state);
   toast(count ? `Equipped ${count} upgrade${count === 1 ? '' : 's'}.` : 'Nothing better in the bag.', count ? 'gold' : 'info');
 }
 function act(name, b) {
@@ -288,7 +287,7 @@ function act(name, b) {
     case 'equip-best': equipBest(); break;
     case 'salvage': {
       const item = state.inventory.find(i => i.id === arg); if (!item) break;
-      const run = () => { const gold = salvageGold(item); if (salvage(state, item.id)) toast(`Salvaged for ${fmt(gold)} gold.`); closeModal(); after(); };
+      const run = () => { const gold = salvageGold(item); if (salvage(state, item.id)) toast(`Salvaged for ${fmt(gold)} gold${state.lastSalvageOrb ? ` and ${CRAFT_OPERATIONS[state.lastSalvageOrb].name}` : ''}.`, state.lastSalvageOrb ? 'gold' : 'info'); closeModal(); after(); };
       if (item.rarity >= 2 || item.unique || item.upgrade) { confirmModal('Salvage this item?', `${esc(item.name)} will be destroyed for ${fmt(salvageGold(item))} gold.`, 'Salvage', run); changed = false; } else { run(); changed = false; }
       break;
     }
@@ -299,6 +298,9 @@ function act(name, b) {
       changed = false; break;
     }
     case 'loot-filter': modal('Loot filter', lootFilterForm(state)); changed = false; break;
+    case 'filter-preset': state.lootFilter = normalizeLootFilter({...state.lootFilter, minRarity:Number(arg)}); modal('Loot filter', lootFilterForm(state)); persist(); changed = false; break;
+    case 'lock': { const equipped = !state.inventory.some(i => i.id === arg); if (toggleLock(state, arg)) { inspect(arg, equipped); renderSheet(); persist(); } changed = false; break; }
+    case 'gamble': { const r = gamble(state, arg); if (r.ok) { sound(r.item.rarity >= 2 ? 780 : 520, .25); ui.fresh.add(r.item.id); after(); modal(r.item.rarity === 3 ? 'A unique!' : r.item.rarity === 2 ? 'A rare find' : 'Your purchase', itemDetail(state, r.item)); changed = false; } else toast(r.reason); break; }
     case 'forge-item': ui.forgeItem = arg; ui.forgeTab = 'orbs'; closeModal(); if (ui.sheet !== 'forge') openSheet('forge'); else renderSheet(); changed = false; break;
     case 'forge-pick': ui.forgeItem = arg; break;
     case 'forge-tab': ui.forgeTab = arg; break;
@@ -366,12 +368,13 @@ document.addEventListener('change', e => {
   else if (kind === 'set-sound') { state.settings.sound = t.checked; sound(); persist(); }
   else if (kind === 'set-motion') { state.settings.motion = t.checked; persist(); }
   else if (kind === 'set-potion') { state.settings.autoPotion = t.checked; persist(); }
+  else if (kind === 'set-autoequip') { state.settings.autoEquip = t.checked; if (t.checked) equipBest(); after(); }
 });
 document.addEventListener('submit', e => {
   e.preventDefault();
   if (e.target.id === 'filter-form') {
     const f = new FormData(e.target);
-    state.lootFilter = normalizeLootFilter({minRarity:Number(f.get('minRarity')), minItemLevel:Math.max(1, Math.floor(Number(f.get('minItemLevel')) || 1)), slots:f.getAll('slots'), affixes:f.getAll('affixes'), alwaysShowUnique:f.get('alwaysShowUnique') === 'on'});
+    state.lootFilter = normalizeLootFilter({minRarity:Number(f.get('minRarity')), minItemLevel:Math.max(1, Math.floor(Number(f.get('minItemLevel')) || 1)), slots:f.getAll('slots'), affixes:f.getAll('affixes'), alwaysShowUnique:f.get('alwaysShowUnique') === 'on', keepUpgrades:f.get('keepUpgrades') === 'on'});
     closeModal(); toast('Loot filter saved.'); after();
   }
   if (e.target.id === 'rename-form') { const name = $('hero-name').value.trim(); if (name) { state.name = name.slice(0, 20); closeModal(); after(); } }
@@ -416,7 +419,7 @@ document.addEventListener('visibilitychange', () => {
 });
 addEventListener('pagehide', persist);
 dockUpgrades = upgradeCount(state);
-if (loaded.migrated || (loaded.state.points > 0 && loaded.state.tree.length === 0 && loaded.state.level > 3)) toast('Your points were refunded for the new passive tree and skill ranks.', 'gold');
+if (loaded.refunded) toast('Your points were refunded for the new passive tree and skill ranks.', 'gold');
 if (loaded.offline) setTimeout(() => showOffline(loaded.offline), 500);
 if (loaded.recovered) toast('The previous save could not be read. A new journey has begun.');
 try { if (!localStorage.getItem('everfrost.help') && state.kills === 0) { localStorage.setItem('everfrost.help', '1'); setTimeout(() => modal('Welcome to Everfrost', helpContent()), 400); } } catch { /* storage optional */ }

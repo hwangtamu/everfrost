@@ -26,9 +26,10 @@ Open http://localhost:5173. For a phone on the same network, open the computer's
 
 - **Eight skills, four slots.** Runic Cleave, Forest Blessing, Thunderstrike, Frost Leap, Whirlwind, Battle Cry, Emberfall, Stone Ward. Each unlocks by level, gains 12% per rank from skill points (ten ranks), and at rank 4 takes one of two runes that reshape it. Every skill can be set to auto-cast or manual.
 - **Passive tree.** 61 nodes on six paths — Warrior, Assassin, Stalker, Guardian, Warden, Mystic — joined by hybrid clusters. One point per level; nodes must connect. Each path ends in a keystone that trades one strength for another (Berserker, Perfect Strike, Momentum, Unbreakable, Alchemist, Blood Rite). Respec for gold.
-- **Gear.** Eleven slots, four rarities, implicit stats that scale with item level, and prefix/suffix modifiers in five tiers. 44 uniques with their own powers. Fire ignites, cold chills, lightning can shock.
-- **Bag.** A 48-slot grid. ▲ marks anything that would raise your damage or toughness; one tap equips every upgrade. A loot filter turns unwanted drops into gold.
-- **Forge.** Temper equipped gear with gold, apply eight kinds of orbs (transmute, augment, regal, alchemy, chaos, exalted, scouring, divine), pick an exact modifier at the bench, or merge three matching items into the next rarity.
+- **Gear.** Eleven slots and four rarities. Every slot drops as one of three bases — a balanced one and two that trade raw stats for a fixed bonus (Reaver Claws crit and speed, Sage's Vestment skill damage, Lucky Charm item rarity…). 24 modifier families in up to eight tiers reaching item level 55, including mana, skill damage, cooldown recovery, splash, gold found, item rarity and "+ to all skill ranks". 44 uniques with their own powers. Fire ignites, cold chills, lightning can shock.
+- **Bag.** A 48-slot grid. ▲ marks anything that would raise your damage or toughness; one tap equips every upgrade, or turn on auto-equip. Item details show the damage and toughness change, utility changes, and the piece being replaced. Lock items to protect them. Sort by best upgrade.
+- **Loot filter.** One-tap presets (keep all, magic+, rare+, unique only) plus slot, level and modifier rules. Rejected drops become gold — but anything that would be an upgrade is spared.
+- **Forge.** Temper equipped gear with gold, apply eight kinds of orbs (transmute, augment, regal, alchemy, chaos, exalted, scouring, divine), pick an exact modifier at the bench, merge three matching items into the next rarity, or gamble gold on an unidentified piece for a chosen slot. Salvaging rare and unique gear by hand can free an orb.
 - **Rifts.** Cut keystones from orbs in the Village and open a rift: five waves and a boss, with modifiers that raise both danger and reward. One entry.
 - **Quests.** Sixteen deeds paying gold and orbs.
 - **Away.** With the fight running you earn gold, experience, orbs and a few items for up to eight hours while the game is closed.
@@ -61,7 +62,7 @@ firebase deploy --only firestore:rules,hosting   # uses .firebaserc
 node --test tests/*.test.mjs
 ```
 
-102 tests cover map generation (500 seeds), automatic expeditions (100 seeds), combat math, skills and runes, auto-cast, the passive tree, potions, ailments, loot and filters, crafting, rifts, panels, save migration and cloud sync.
+112 tests cover map generation (500 seeds), automatic expeditions (100 seeds), combat math, skills and runes, auto-cast, the passive tree, potions, ailments, loot and filters, crafting, rifts, panels, save migration and cloud sync.
 
 - `dist/engine.js` — game rules, simulation and persistence (DOM-free).
 - `dist/skills.js`, `dist/tree.js` — skill and passive-tree data and rules.

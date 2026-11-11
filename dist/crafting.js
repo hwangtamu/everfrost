@@ -21,6 +21,22 @@ export const craftCost = (op, item) => ({gold: Math.round(op.gold * (1 + (item?.
 export const craftTarget = (s, id) =>
   (id ? s.inventory.find(i => i.id === id) : null) || Object.values(s.equipment).find(i => i?.id === id) || null;
 
+// Why an orb cannot be used on an item right now ('' when it can).
+export function craftBlock(item, opId) {
+  if (!item) return 'Choose an item.';
+  const full = !['prefix', 'suffix'].some(side => canAddAffix(item, side));
+  switch (opId) {
+    case 'transmute': case 'alchemy': return item.rarity === 0 ? '' : 'Needs a normal item';
+    case 'augment': return item.rarity !== 1 ? 'Needs a magic item' : full ? 'No free modifier slot' : '';
+    case 'regal': return item.rarity === 1 ? '' : 'Needs a magic item';
+    case 'chaos': return item.rarity === 2 ? '' : 'Needs a rare item';
+    case 'exalt': return item.rarity !== 2 ? 'Needs a rare item' : full ? 'No free modifier slot' : '';
+    case 'scour': return item.rarity >= 1 ? '' : 'Nothing to remove';
+    case 'divine': return item.affixes?.length ? '' : 'No modifiers to reroll';
+    default: return 'Unknown orb';
+  }
+}
+
 export function craft(s, item, opId, rng = Math.random) {
   const op = CRAFT_OPERATIONS[opId];
   if (!op || !item) return {ok: false, reason: 'Unknown operation or target.'};

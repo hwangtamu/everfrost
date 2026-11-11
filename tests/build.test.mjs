@@ -231,3 +231,129 @@ test('time away brings back a few items without overfilling the bag',()=>{
   const full=createGame(1_000_000,42);while(full.inventory.length<47)full.inventory.push({...full.inventory[0],id:'x'+full.inventory.length});
   assert.equal(offlineRewards(full,1_000_000+8*3600*1000,fixed).items.length,1);assert.equal(full.inventory.length,48);
 });
+
+// ---------- Gear and loot depth ----------
+import {makeItem,equip,salvage,salvageGold,toggleLock,merge,gamble,gambleCost,equipUpgrades,dropItem,collectLoot} from '../dist/engine.js';
+import {BASES,baseOf,baseBonuses,bonusLines} from '../dist/gear.js';
+import {AFFIXES,makeAffix,retier,rollAffixes} from '../dist/loot.js';
+import {normalizeLootFilter} from '../dist/loot-filter.js';
+import {itemDetail,itemTile,utilityChanges,inventoryItems,salvageCandidates} from '../dist/panels.js';
+
+test('every slot has three bases; the first keeps the classic profile and bonuses reach real stats',()=>{
+  for(const [slot,bases] of Object.entries(BASES)){
+    assert.equal(bases.length,3);assert.equal(new Set(bases.map(b=>b.id)).size,3);assert(!bases[0].bonus,slot);
+    for(const b of bases)assert.equal(bonusLines(b).length,Object.keys(b.bonus||{}).length);
+  }
+  const seen=new Set();for(let i=0;i<60;i++)seen.add(makeItem('hand',0,5).base);assert.equal(seen.size,3);
+  assert.equal(makeItem('hand',0,5,fixed,'claws').base,'claws');assert.equal(makeItem('hand',0,5,fixed,'nope').base,'gauntlets');
+  const s=createGame(1000,42),before=stats(s);
+  s.equipment.hand=makeItem('hand',0,1,fixed,'claws');
+  assert(Math.abs(stats(s).crit-before.crit-.05)<1e-9);assert(stats(s).attackSpeed>before.attackSpeed);
+  s.equipment.leftRing=makeItem('leftRing',0,1,fixed,'gilded');
+  assert.equal(stats(s).goldFind,12);assert.equal(stats(s).magicFind,8);
+  assert.deepEqual(baseBonuses([s.equipment.hand,s.equipment.leftRing,null]),{critical:5,haste:8,goldFind:12,magicFind:8});
+  assert(s.equipment.hand.name.includes('Reaver Claws'));
+});
+
+test('bases survive a save; unknown bases fall back without rerolling valid implicits',()=>{
+  const storage=memory(),s=createGame(1000,42);s.auto=false;
+  const claws=makeItem('hand',2,9,fixed,'claws'),odd=makeItem('chest',1,9,fixed,'cuirass');odd.base='gone';
+  s.inventory=[claws,odd];const rolled=structuredClone(claws.implicits),kept=structuredClone(odd.implicits);
+  saveGame(s,storage);const t=loadGame(storage,s.lastSave).state;
+  assert.equal(t.inventory[0].base,'claws');assert.deepEqual(t.inventory[0].implicits,rolled);
+  assert.equal(baseOf(t.inventory[1]).id,'cuirass');assert.deepEqual(t.inventory[1].implicits,kept);
+});
+
+test('new modifiers change mana, skills, splash, cooldowns and what drops',()=>{
+  const s=arena(1,30),p=stats(s);
+  s.equipment.hand.affixes=[{id:'runed',value:20},{id:'sweeping',value:40}];
+  s.equipment.chest.affixes=[{id:'lucid',value:30},{id:'clarity',value:50}];
+  s.equipment.neck=makeItem('neck',0,30,fixed,'pendant');s.equipment.neck.affixes=[{id:'tempo',value:10},{id:'greed',value:100},{id:'fortune',value:400}];
+  const q=stats(s);
+  assert.equal(q.maxMana,p.maxMana+30);assert(Math.abs(q.manaRegen/p.manaRegen-1.5)<1e-9);assert(Math.abs(q.skillDamage-1.2)<1e-9);
+  assert(Math.abs(q.splash-.7)<1e-9);assert(Math.abs(q.cooldownRate-1.1)<1e-9);assert.equal(q.goldFind,100);assert.equal(q.magicFind,300,'capped');
+  const rich=arena(1,30),poor=arena(1,30);rich.equipment=s.equipment;
+  const a=[],b=[];defeatEnemy(rich,rich.enemies[0],a,fixed);defeatEnemy(poor,poor.enemies[0],b,fixed);
+  assert.equal(a.find(e=>e.type==='kill').gold,b.find(e=>e.type==='kill').gold*2);
+  // Item rarity turns a magic-tier roll into a unique one.
+  const roll=()=>.2,lucky=arena(1,30),plain=arena(1,30);lucky.equipment=s.equipment;
+  for(const g of [lucky,plain]){g.enemies[0].tier='rare';g.lootFilter=normalizeLootFilter();}
+  const la=[],pa=[];defeatEnemy(lucky,lucky.enemies[0],la,roll);defeatEnemy(plain,plain.enemies[0],pa,roll);
+  assert(la.find(e=>e.type==='drop').item.rarity>pa.find(e=>e.type==='drop').item.rarity);
+});
+
+test('"+ to all skill ranks" lifts unlocked skills past their trained rank',()=>{
+  const s=arena(1,30);s.skillPoints=20;const base=skillParams(s,'cleave').mult;
+  s.equipment.head=makeItem('head',0,40,fixed,'helm');s.equipment.head.affixes=[{id:'mastery',value:2}];
+  assert.equal(skillRank(s,'cleave'),3);assert(Math.abs(skillParams(s,'cleave').mult/base-1.24)<1e-9);
+  s.level=1;assert.equal(skillRank(s,'mend'),0,'locked skills stay locked');s.level=30;
+  for(let i=0;i<20;i++)investSkill(s,'cleave');assert.equal(skillRank(s,'cleave'),MAX_SKILL_RANK+2);assert.equal(s.skillPoints,11);
+  assert(!rollAffixes('head',3,5,()=>.99).some(a=>a.id==='mastery'),'mastery cannot roll below item level 13');
+  assert.equal(makeAffix('mastery',45,()=>.99).value,2);
+});
+
+test('saved tier numbers follow the longer tier lists',()=>{
+  const storage=memory(),s=createGame(1000,42);s.auto=false;
+  const top=AFFIXES.might.tiers[4]; // the old Tier 1 row
+  s.equipment.hand.affixes=[{id:'might',tier:1,value:15,min:top.minVal,max:top.maxVal},{id:'haste',value:4}];
+  saveGame(s,storage);const [might,haste]=loadGame(storage,s.lastSave).state.equipment.hand.affixes;
+  assert.equal(might.tier,4);assert.equal(might.value,15);assert.equal(haste.tier,8);assert.equal(haste.min,3);
+  assert.equal(retier({id:'might',value:9999}).tier,1);
+});
+
+test('locked items cannot be salvaged or merged, and salvaging fine gear can free an orb',()=>{
+  const s=createGame(1000,42);const rare=makeItem('head',2,5,fixed),unique=makeItem('head',3,5,fixed);
+  s.inventory=[rare,unique,...Array.from({length:3},()=>makeItem('foot',0,5,fixed,'boots'))];
+  assert(toggleLock(s,rare.id));assert(rare.locked);assert(!salvage(s,rare.id));assert(!salvageCandidates(s).some(i=>i.id===rare.id));
+  s.inventory[2].locked=true;s.gold=500;assert(!merge(s,'foot',0),'a locked piece is never consumed');
+  assert(itemTile(rare).includes('tile-lock'));assert(itemDetail(s,rare).includes('data-act="salvage" data-arg="'+rare.id+'" disabled'));
+  assert(toggleLock(s,rare.id));assert.equal(rare.locked,undefined);
+  const orbs=()=>Object.values(s.orbs).reduce((a,b)=>a+b,0),before=orbs(),gold=s.gold;
+  assert(salvage(s,unique.id,fixed));assert.equal(orbs(),before+1);assert.equal(s.gold,gold+salvageGold(unique));
+  assert(salvage(s,rare.id,()=>.1));assert.equal(orbs(),before+2);assert(!toggleLock(s,'missing'));
+  assert(toggleLock(s,s.equipment.hand.id),'equipped gear can be locked too');
+});
+
+test('gambling charges once, respects bag space and rolls the promised rarities',()=>{
+  const s=createGame(1000,42);s.maxStage=20;s.inventory=[];s.gold=gambleCost(s)*2+5;
+  const a=gamble(s,'ring',()=>.01);assert(a.ok);assert.equal(a.item.rarity,3);assert.equal(a.item.itemLevel,20);assert.equal(a.item.slot,'leftRing');
+  const b=gamble(s,'chest',()=>.3);assert.equal(b.item.rarity,2);assert.equal(s.gold,5);
+  assert(!gamble(s,'chest').ok);s.gold=1e9;assert.equal(gamble(s,'hand',()=>.9).item.rarity,1);assert(!gamble(s,'nope').ok);
+  while(s.inventory.length<48)s.inventory.push(makeItem('foot'));const gold=s.gold;assert(!gamble(s,'hand').ok);assert.equal(s.gold,gold);
+});
+
+test('the filter spares upgrades, and auto-equip wears them on pickup',()=>{
+  const s=createGame(1000,42);s.auto=false;s.lootFilter=normalizeLootFilter({minRarity:3});assert.equal(s.lootFilter.keepUpgrades,true);
+  const strong={...makeItem('hand',0,40,fixed,'gauntlets')},weak=makeItem('hand',0,1,()=>0,'gauntlets');
+  assert(isUpgrade(bestComparison(s,strong)));assert(!isUpgrade(bestComparison(s,weak)));
+  const count=s.inventory.length,events=[];
+  dropItem(s,weak,s.player);collectLoot(s,weak.id,events);assert(events.some(e=>e.type==='filteredLoot'));assert.equal(s.inventory.length,count);
+  dropItem(s,strong,s.player);collectLoot(s,strong.id,events);assert.equal(s.inventory.length,count+1,'kept although it is not unique');
+  const auto=createGame(1000,42);auto.auto=false;auto.settings.autoEquip=true;const old=auto.equipment.hand.id,ev=[];
+  const drop=makeItem('hand',0,40,fixed,'gauntlets');dropItem(auto,drop,auto.player);collectLoot(auto,drop.id,ev);
+  assert.equal(auto.equipment.hand.id,drop.id);assert(auto.inventory.some(i=>i.id===old));assert(ev.some(e=>e.type==='autoEquip'));
+  const many=createGame(1000,42);many.inventory=[makeItem('hand',0,30,fixed,'gauntlets'),makeItem('chest',0,30,fixed,'cuirass'),makeItem('hand',0,1,()=>0,'gauntlets')];
+  assert.equal(equipUpgrades(many),2);assert.equal(many.equipment.hand.itemLevel,30);
+});
+
+test('item details show the base, the piece being replaced and utility changes',()=>{
+  const s=createGame(1000,42),item=makeItem('chest',1,3,fixed,'vestment');
+  const html=itemDetail(s,item);
+  assert(html.includes('Sage’s Vestment'));assert(html.includes('+10% skill damage'));assert(html.includes('<details><summary>Replaces'));
+  assert(html.includes(s.equipment.chest.name));assert(html.includes('skill damage</span>'));
+  assert(utilityChanges(s,item).some(c=>c.label==='skill damage'&&c.diff>0));
+  assert.equal(inventoryItems({...s,inventory:[makeItem('hand',0,1,()=>0,'gauntlets'),makeItem('hand',0,50,fixed,'gauntlets')]},'all','upgrade')[0].itemLevel,50);
+});
+
+test('the forge explains why an orb does not apply and only offers modifiers that fit',async()=>{
+  const {craftBlock,craft}=await import('../dist/crafting.js');
+  const s=createGame(1000,42);s.gold=1e6;for(const k in s.orbs)s.orbs[k]=5;
+  const item=makeItem('hand',0,20,fixed,'gauntlets');s.inventory=[item];
+  for(const id of Object.keys(s.orbs)){const item2=structuredClone(item);assert.equal(craftBlock(item2,id)==='',craft(s,item2,id,fixed).ok,id+' on a normal item');}
+  const rare=makeItem('hand',2,20,fixed,'gauntlets');rare.affixes=['might','fire','cold'].map(id=>makeAffix(id,20,fixed));s.inventory=[rare];
+  assert.equal(craftBlock(rare,'transmute'),'Needs a normal item');assert.equal(craftBlock(rare,'exalt'),'');
+  const ui={forgeItem:rare.id,forgeTab:'bench',benchAffix:null,benchTier:null};
+  const bench=forgePanel(s,ui);assert(!bench.includes('value="lightning"'),'prefixes are full');assert(bench.includes('value="haste"'));
+  assert(forgePanel(s,{...ui,forgeTab:'orbs'}).includes('Needs a normal item'));
+  assert(forgePanel(s,{...ui,forgeTab:'gamble'}).includes('data-act="gamble" data-arg="ring"'));
+});

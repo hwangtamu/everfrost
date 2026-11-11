@@ -35,7 +35,7 @@ modules served statically. This index maps the system; each page goes deeper.
 │   ├── actors.js           Procedural sprites
 │   ├── icons.js            Inline SVG icons
 │   └── manifest.webmanifest, icon*.png|svg   Home-screen install
-└── tests/                  Node test runner; 102 tests
+└── tests/                  Node test runner; 112 tests
 ```
 
 ## Design principles

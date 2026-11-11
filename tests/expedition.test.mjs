@@ -202,7 +202,7 @@ test('enemy and loot dossiers describe the current rules and escape names',()=>{
   const item=makeItem('hand',3,1,fixed);
   const esc=t=>t.replace(/’/g,'’').replace(/'/g,'&#39;');
   assert(itemDetail(s,item).includes(esc(UNIQUE_EFFECTS[item.unique].description)));
-  assert(itemDetail(s,item).includes('vs hand'));assert(itemDetail(s,item).includes('data-act="equip"'));
+  assert(itemDetail(s,item).includes('If worn as hand'));assert(itemDetail(s,item).includes('data-act="equip"'));
   assert(!itemDetail(s,item,{equipped:true}).includes('data-act="salvage"'));
 });
 

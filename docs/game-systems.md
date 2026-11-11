@@ -140,11 +140,34 @@ node. `respecCost = 40 + nodes · 12 · max(1, floor(level/5))` gold.
 - Items drop on the ground and are collected after 2.4 s (or on tap). Drops
   that fail the loot filter become gold. A full 48-slot bag salvages new
   drops.
-- **Implicits**: `rate × item level × (0.95–1.05)` per slot; tempering adds
-  10% of the base per rank (`40·(rank+1)` gold).
-- **Explicit modifiers**: prefixes and suffixes, three of each at most, five
-  tiers gated by item level (1/4/8/13/19). Magic 1–2, rare 4–6, unique 3+3
-  plus a named power.
+- **Bases** (`gear.js::BASES`): each slot drops as one of three bases chosen
+  at random. The first is the classic profile; the others have different
+  implicit rates and a fixed bonus (critical chance, attack speed, movement,
+  skill damage, mana regeneration, gold found, item rarity, potion strength…).
+  `baseBonuses` folds those into `stats()`. Items remember `base`; older items
+  without one count as the first base.
+- **Implicits**: `rate × item level × (0.95–1.05)` per base stat; tempering
+  adds 10% of the base per rank (`40·(rank+1)` gold).
+- **Explicit modifiers**: prefixes and suffixes, three of each at most. Magic
+  1–2, rare 4–6, unique 3+3 plus a named power. Most families have eight
+  tiers gated by item level 1/4/8/13/19/28/40/55; a drop rolls among the best
+  five tiers its level allows, weighted toward the weaker ones. Flat stats grow
+  steeply in the deep tiers, percentages gently.
+- **Families**: attack, armor (two), health (two), fire, cold, lightning,
+  attack speed, critical chance, critical multiplier, movement, reach,
+  resistance, leech, regeneration, plus maximum mana, skill damage, cooldown
+  recovery, splash damage, mana regeneration, gold found, item rarity, and
+  "+1/+2 to all skill ranks" (head and neck only, from item level 13/40).
+- **Gold found** multiplies kill gold; **item rarity** divides the rarity roll
+  like rift rarity does (both capped at 300%).
+- **Locking** an item protects it from salvage, bulk salvage and merging.
+- **Salvage** pays gold; by hand, a unique also yields a Regal, Alchemy or
+  Chaos orb and a rare has a 30% chance of a common orb.
+- **Gamble** (`gamble`): `150 + 45·maxStage` gold buys an item of the chosen
+  slot at item level `maxStage` — 6% unique, 34% rare, otherwise magic.
+- **Filter**: `keepUpgrades` (on by default) spares any drop that
+  `isUpgrade(bestComparison(s, item))`. With the `autoEquip` setting, such a
+  drop is worn on pickup.
 - **Orbs** drop only from enemies (and quests): Transmutation, Augmentation,
   Regal, Alchemy, Chaos, Exalted, Scouring, Divine. Each use also costs gold.
 - **Bench**: add a chosen modifier at a chosen tier for gold.

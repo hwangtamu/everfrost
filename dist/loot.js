@@ -7,6 +7,17 @@ import {GEAR_SLOTS,RING_SLOTS} from './gear.js';
 export const ITEM_RARITIES = ['Normal', 'Magic', 'Rare', 'Unique'];
 export const AFFIX_LIMIT = 3;
 const T = (...rows) => rows.map(([minLevel, minVal, maxVal]) => ({minLevel, minVal, maxVal}));
+// Three further tiers keep loot worth chasing past the first journey. Flat stats
+// grow steeply to keep up with enemies; percentages grow gently toward their caps.
+export const DEEP_TIER_LEVELS = [28, 40, 55];
+const GROWTH = {flat: [1.6, 2.4, 3.5], percent: [1.2, 1.4, 1.65], slight: [1.1, 1.2, 1.3]};
+function deepen(def) {
+  if (def.fixedTiers) return def;
+  const top = def.tiers.at(-1), factor = 10 ** (def.decimals || 0), round = v => Math.round(v * factor) / factor;
+  const curve = GROWTH[def.growth || (def.label.startsWith('%') ? 'percent' : 'flat')];
+  def.tiers = [...def.tiers, ...DEEP_TIER_LEVELS.map((minLevel, i) => ({minLevel, minVal: round(top.minVal * curve[i]), maxVal: round(top.maxVal * curve[i])}))];
+  return def;
+}
 
 export const AFFIXES = {
   // ---- Prefixes: grant a base statistic ----
@@ -22,12 +33,23 @@ export const AFFIXES = {
   haste: {name: 'of Haste', label: '% attack speed', stat: 'haste', kind: 'suffix', slots: ['hand', 'wrist', 'neck', ...RING_SLOTS], tiers: T([1,3,6],[4,5,9],[8,8,13],[13,11,17],[19,15,22])},
   precision: {name: 'of Precision', label: '% critical chance', stat: 'critical', kind: 'suffix', slots: ['hand', 'wrist', 'neck', ...RING_SLOTS], tiers: T([1,2,4],[4,3,6],[8,5,9],[13,7,11],[19,9,15])},
   swiftness: {name: 'of Swiftness', label: '% movement speed', stat: 'movement', kind: 'suffix', slots: GEAR_SLOTS.filter(s=>s!=='hand'), tiers: T([1,5,10],[4,8,15],[8,12,20],[13,16,28],[19,22,36])},
-  reach: {name: 'of Reach', label: 'tiles attack range', stat: 'reach', kind: 'suffix', decimals: 1, slots: ['hand', 'wrist', 'neck', ...RING_SLOTS], tiers: T([1,.3,.5],[4,.4,.7],[8,.6,1],[13,.8,1.3],[19,1,1.7])},
+  reach: {name: 'of Reach', label: 'tiles attack range', stat: 'reach', kind: 'suffix', decimals: 1, growth: 'slight', slots: ['hand', 'wrist', 'neck', ...RING_SLOTS], tiers: T([1,.3,.5],[4,.4,.7],[8,.6,1],[13,.8,1.3],[19,1,1.7])},
   ferocity: {name: 'of Ruin', label: '% critical strike multiplier', stat: 'criticalMultiplier', kind: 'suffix', slots: ['hand', 'wrist', 'neck', ...RING_SLOTS], tiers: T([1,10,18],[4,14,24],[8,20,32],[13,26,40],[19,34,52])},
   resist: {name: 'of Warding', label: '% elemental resistance', stat: 'resist', kind: 'suffix', slots: GEAR_SLOTS.filter(s=>s!=='hand'), tiers: T([1,4,8],[4,6,11],[8,9,15],[13,12,20],[19,16,26])},
-  leech: {name: 'of Leech', label: '% damage leeched as life', stat: 'leech', kind: 'suffix', decimals: 1, slots: ['hand', 'wrist', ...RING_SLOTS], tiers: T([1,1,2],[4,1.5,3],[8,2.5,4],[13,3.5,5.5],[19,5,7])},
-  regeneration: {name: 'of Renewal', label: 'life regenerated / sec', stat: 'regen', kind: 'suffix', decimals: 1, slots: GEAR_SLOTS.filter(s=>s!=='hand'), tiers: T([1,1,2.5],[4,2,4],[8,3,6],[13,4.5,8],[19,6,10])}
+  leech: {name: 'of Leech', label: '% damage leeched as life', stat: 'leech', kind: 'suffix', decimals: 1, growth: 'slight', slots: ['hand', 'wrist', ...RING_SLOTS], tiers: T([1,1,2],[4,1.5,3],[8,2.5,4],[13,3.5,5.5],[19,5,7])},
+  regeneration: {name: 'of Renewal', label: 'life regenerated / sec', stat: 'regen', kind: 'suffix', decimals: 1, slots: GEAR_SLOTS.filter(s=>s!=='hand'), tiers: T([1,1,2.5],[4,2,4],[8,3,6],[13,4.5,8],[19,6,10])},
+  // ---- Build-shaping modifiers ----
+  lucid: {name: 'Lucid', label: 'maximum mana', stat: 'mana', kind: 'prefix', growth: 'percent', slots: ['head', 'neck', 'chest', 'belt', ...RING_SLOTS], tiers: T([1,6,10],[4,9,15],[8,13,21],[13,18,28],[19,24,36])},
+  runed: {name: 'Runed', label: '% skill damage', stat: 'skillDamage', kind: 'prefix', slots: ['hand', 'wrist', 'neck', 'head'], tiers: T([1,4,7],[4,6,10],[8,9,14],[13,12,18],[19,16,24])},
+  tempo: {name: 'of Tempo', label: '% cooldown recovery', stat: 'cooldown', kind: 'suffix', slots: ['head', 'neck', 'belt', ...RING_SLOTS], tiers: T([1,3,5],[4,4,7],[8,6,9],[13,8,12],[19,10,15])},
+  sweeping: {name: 'of Sweeping', label: '% splash damage', stat: 'splash', kind: 'suffix', slots: ['hand', 'wrist', 'shoulder'], tiers: T([1,6,10],[4,9,15],[8,13,20],[13,18,26],[19,24,34])},
+  clarity: {name: 'of Clarity', label: '% mana regeneration', stat: 'manaRegen', kind: 'suffix', slots: ['head', 'neck', 'chest', ...RING_SLOTS], tiers: T([1,8,14],[4,12,20],[8,17,27],[13,23,35],[19,30,45])},
+  greed: {name: 'of Greed', label: '% gold found', stat: 'goldFind', kind: 'suffix', slots: ['neck', 'belt', 'foot', 'wrist', ...RING_SLOTS], tiers: T([1,8,14],[4,12,20],[8,17,27],[13,23,35],[19,30,45])},
+  fortune: {name: 'of Fortune', label: '% item rarity', stat: 'magicFind', kind: 'suffix', slots: ['head', 'neck', 'foot', ...RING_SLOTS], tiers: T([1,5,9],[4,8,13],[8,11,18],[13,15,24],[19,20,32])},
+  mastery: {name: 'of Mastery', label: 'to all skill ranks', stat: 'allSkills', kind: 'suffix', fixedTiers: true, slots: ['head', 'neck'], tiers: T([13,1,1],[40,2,2])}
 };
+for (const def of Object.values(AFFIXES)) deepen(def);
+
 // Unique powers keyed by id, in the spirit of Diablo II / Path of Exile
 // uniques: a named power fixed to a base item. `slots` limits which gear slots
 // can roll each power. `stats` grants equipment bonuses like explicit affixes —
@@ -105,8 +127,10 @@ export function makeAffix(id, itemLevel, rng = Math.random, forcedTier = 0) {
   if (forcedTier > 0) {
     chosen = Math.max(0, Math.min(n - 1, n - forcedTier));
   } else {
-    const eligible = [];
+    let eligible = [];
     a.tiers.forEach((t, i) => { if (t.minLevel <= itemLevel) eligible.push(i); });
+    // High-level drops stop rolling the weakest tiers: only the best five that fit.
+    eligible = eligible.slice(-5);
     if (!eligible.length) eligible.push(0);
     const total = eligible.reduce((sum, _, k) => sum + (eligible.length - k), 0);
     let roll = rng() * total;
@@ -123,7 +147,7 @@ export function makeAffix(id, itemLevel, rng = Math.random, forcedTier = 0) {
 export function rollAffixes(slot, rarity, itemLevel, rng = Math.random) {
   if (rarity <= 0) return [];
   const rollSide = (side, count) => {
-    const pool = Object.entries(AFFIXES).filter(([, a]) => a.kind === side && a.slots.includes(slot));
+    const pool = Object.entries(AFFIXES).filter(([, a]) => a.kind === side && a.slots.includes(slot) && a.tiers[0].minLevel <= itemLevel);
     const out = [];
     for (let i = 0; i < count && pool.length; i++) {
       const [affixId] = pool.splice(Math.floor(rng() * pool.length), 1)[0];
@@ -150,7 +174,7 @@ export const canAddAffix = (item, side) => affixSlots(item)[side] < AFFIX_LIMIT;
 
 export function addAffix(item, side, rng = Math.random) {
   const used = new Set((item.affixes || []).filter(a => AFFIXES[a.id]?.kind === side).map(a => a.id));
-  const pool = Object.entries(AFFIXES).filter(([affixId, a]) => a.kind === side && a.slots.includes(item.slot) && !used.has(affixId));
+  const pool = Object.entries(AFFIXES).filter(([affixId, a]) => a.kind === side && a.slots.includes(item.slot) && !used.has(affixId) && a.tiers[0].minLevel <= (item.itemLevel || 1));
   if (!pool.length || !canAddAffix(item, side)) return null;
   const [affixId] = pool[Math.floor(rng() * pool.length)];
   item.affixes = [...(item.affixes || []), makeAffix(affixId, item.itemLevel || 1, rng)];
@@ -180,6 +204,19 @@ export function affixText(affix) {
   if (!a) return '';
   return `+${affix.value}${a.label.startsWith('%') ? '' : ' '}${a.label}`;
 }
+// Stored tier numbers follow the family's current tier list, so a value range
+// saved before tiers were added maps back to the right row.
+export function retier(affix) {
+  const def = AFFIXES[affix.id]; if (!def) return affix;
+  const n = def.tiers.length;
+  let index = def.tiers.findIndex(t => t.minVal === affix.min && t.maxVal === affix.max);
+  if (index < 0) index = def.tiers.findIndex(t => affix.value >= t.minVal && affix.value <= t.maxVal);
+  if (index < 0) { let best = Infinity; def.tiers.forEach((t, i) => { const d = Math.abs(affix.value - (t.minVal + t.maxVal) / 2); if (d < best) { best = d; index = i; } }); }
+  const t = def.tiers[index];
+  affix.tier = n - index; affix.min = t.minVal; affix.max = t.maxVal;
+  affix.value = Math.max(t.minVal, Math.min(t.maxVal, affix.value));
+  return affix;
+}
 
 export function lootRarity(enemyTier, rng = Math.random) {
   const roll = rng();
@@ -188,7 +225,7 @@ export function lootRarity(enemyTier, rng = Math.random) {
   return roll < unique ? 3 : roll < rare ? 2 : roll < magic ? 1 : 0;
 }
 export function affixBonuses(items) {
-  const bonuses = {attack: 0, defense: 0, maxHp: 0, haste: 0, movement: 0, reach: 0, critical: 0, criticalMultiplier: 0, fire: 0, cold: 0, lightning: 0, resist: 0, leech: 0, regen: 0};
+  const bonuses = {attack: 0, defense: 0, maxHp: 0, haste: 0, movement: 0, reach: 0, critical: 0, criticalMultiplier: 0, fire: 0, cold: 0, lightning: 0, resist: 0, leech: 0, regen: 0, mana: 0, skillDamage: 0, cooldown: 0, splash: 0, manaRegen: 0, goldFind: 0, magicFind: 0, allSkills: 0};
   for (const item of items.filter(Boolean)) for (const affix of item.affixes || []) {
     if (AFFIXES[affix.id]) bonuses[AFFIXES[affix.id].stat] += affix.value;
   }

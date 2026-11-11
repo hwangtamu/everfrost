@@ -1,13 +1,13 @@
 // Panel markup for the slide-over sheets and dialogs. Everything here is a pure
 // function of game state (plus a small `ui` view-state object) returning HTML,
 // so it can be rendered in the browser and exercised in Node tests alike.
-import {REGIONS,QUESTS,stats,combatStats,enemyStats,region,journey,xpRequired,salvageGold,upgradeCost,skillRange,POTION_KILLS} from './engine.js';
-import {GEAR,GEAR_SLOTS,RING_SLOTS,STAT_LABELS,implicitStats} from './gear.js';
+import {REGIONS,QUESTS,stats,combatStats,enemyStats,region,journey,xpRequired,salvageGold,upgradeCost,skillRange,POTION_KILLS,compareItem,bestComparison,isUpgrade,gambleCost} from './engine.js';
+import {GEAR,GEAR_SLOTS,RING_SLOTS,STAT_LABELS,BASES,baseOf,bonusLines,implicitStats} from './gear.js';
 import {AFFIXES,UNIQUE_EFFECTS,ITEM_RARITIES,AFFIX_LIMIT,affixText,affixSlots,tierOf} from './loot.js';
 import {ENEMY_TIERS,MODIFIERS} from './monsters.js';
-import {CRAFT_OPERATIONS,craftCost,benchCost} from './crafting.js';
+import {CRAFT_OPERATIONS,craftCost,benchCost,craftBlock} from './crafting.js';
 import {KEYSTONE_RECIPES,RIFT_MODIFIERS,RIFT_WAVES,modifierValue,riftBonuses} from './keystones.js';
-import {SKILLS,SKILL_BY_ID,SKILL_SLOTS,MAX_SKILL_RANK,RUNE_RANK,skillRank,skillParams,skillDetail,activeRune} from './skills.js';
+import {SKILLS,SKILL_BY_ID,SKILL_SLOTS,MAX_SKILL_RANK,RUNE_RANK,skillRank,baseRank,gearRanks,skillParams,skillDetail,activeRune} from './skills.js';
 import {TREE_NODES,TREE_BY_ID,TREE_EXTENT,TREE_PATHS,hasNode,canAllocate,respecCost,treeBonuses,describeStats} from './tree.js';
 import {lootFilterSummary,matchesLootFilter} from './loot-filter.js';
 import {icon} from './icons.js';
@@ -20,43 +20,49 @@ const slotLabel = slot => RING_SLOTS.includes(slot) ? 'Ring' : GEAR[slot].label;
 const sign = n => (n > 0 ? '+' : '') + n;
 
 // ---------- Items ----------
-// How a hypothetical swap changes damage and survivability, in percent.
-export function compareItem(s, item, slot = item.slot) {
-  const before = combatStats({...s, effects:{chill:0}}), after = combatStats({...s, effects:{chill:0}, equipment:{...s.equipment, [slot]:{...item, slot}}});
-  return {slot, dps:(after.dps/before.dps-1)*100, tough:(after.toughness/before.toughness-1)*100};
+export {compareItem, bestComparison, isUpgrade};
+// Changes a swap makes that the damage/toughness figures do not capture.
+const UTILITY = [['movementSpeed','movement speed',v=>num(v,2)+' tiles/s'],['attackRange','attack range',v=>num(v)+' tiles'],['maxMana','mana',v=>num(v,0)],['manaRegen','mana regen',v=>num(v)+'/s'],
+  ['cooldownRate','cooldown recovery',v=>num(v*100,0)+'%'],['skillDamage','skill damage',v=>num(v*100,0)+'%'],['goldFind','gold found',v=>num(v,0)+'%'],['magicFind','item rarity',v=>num(v,0)+'%'],['allSkills','all skill ranks',v=>num(v,0)],['potionHeal','potion strength',v=>num(v*100,0)+'%']];
+export function utilityChanges(s, item, slot = item.slot) {
+  const before = stats({...s, effects:{chill:0}}), after = stats({...s, effects:{chill:0}, equipment:{...s.equipment, [slot]:{...item, slot}}});
+  return UTILITY.map(([key, label, show]) => ({label, diff:after[key] - before[key], text:show(Math.abs(after[key] - before[key]))})).filter(c => Math.abs(c.diff) > 1e-6);
 }
-// For rings, compare against whichever finger gains the most.
-export function bestComparison(s, item) {
-  const options = (RING_SLOTS.includes(item.slot) ? RING_SLOTS : [item.slot]).map(slot => compareItem(s, item, slot));
-  return options.sort((a,b) => (b.dps+b.tough) - (a.dps+a.tough))[0];
-}
-export const isUpgrade = c => c.dps + c.tough > 1 && c.dps > -12 && c.tough > -12;
 
-export function itemTile(item, {equipped = false, selected = false, upgrade = false, act = 'item'} = {}) {
-  return `<button class="tile r${item.rarity} ${selected?'selected':''}" data-act="${act}" data-arg="${esc(item.id)}" ${equipped?'data-equipped="1"':''} aria-label="${esc(item.name)}, ${ITEM_RARITIES[item.rarity]} ${slotLabel(item.slot)}, item level ${item.itemLevel}">${icon(SLOT_ICONS[item.slot])}<span class="tile-level">${item.itemLevel}</span>${item.upgrade?`<span class="tile-plus">+${item.upgrade}</span>`:''}${upgrade?'<span class="tile-up" title="Upgrade">▲</span>':''}</button>`;
+export function itemTile(item, {equipped = false, selected = false, upgrade = false, fresh = false, act = 'item'} = {}) {
+  return `<button class="tile r${item.rarity} ${selected?'selected':''}" data-act="${act}" data-arg="${esc(item.id)}" ${equipped?'data-equipped="1"':''} aria-label="${esc(item.name)}, ${ITEM_RARITIES[item.rarity]} ${slotLabel(item.slot)}, item level ${item.itemLevel}${item.locked?', locked':''}${upgrade?', upgrade':''}">${icon(SLOT_ICONS[item.slot])}<span class="tile-level">${item.itemLevel}</span>${item.upgrade?`<span class="tile-plus">+${item.upgrade}</span>`:''}${upgrade?'<span class="tile-up" title="Upgrade">▲</span>':''}${item.locked?`<span class="tile-lock">${icon('lock')}</span>`:''}${fresh?'<span class="tile-new"></span>':''}</button>`;
 }
 function affixLines(item) {
   if (!item.affixes?.length) return '';
   return item.affixes.map(a => {
     const def = AFFIXES[a.id], span = a.max - a.min, quality = span > 0 ? Math.round((a.value - a.min) / span * 100) : 100;
-    return `<li class="${def.kind}"><span>${esc(affixText(a))}</span><small title="Tier ${a.tier} · rolls ${a.min}–${a.max}">${def.kind==='prefix'?'P':'S'} · T${a.tier} · ${quality}%</small></li>`;
+    const best = def.tiers.length - def.tiers.findLastIndex(t => t.minLevel <= item.itemLevel);
+    return `<li class="${def.kind}"><span>${esc(affixText(a))}</span><small class="${a.tier <= best ? 'top' : ''}" title="Tier ${a.tier} of ${def.tiers.length} · rolls ${a.min}–${a.max} · best tier at this item level: ${best}">${def.kind==='prefix'?'P':'S'} · T${a.tier} · ${quality}%</small></li>`;
   }).join('');
 }
+const baseLines = item => bonusLines(baseOf(item)).map(line => `<li class="base-bonus"><span>${esc(line)}</span><small>base</small></li>`).join('');
+function itemBody(item) {
+  const unique = UNIQUE_EFFECTS[item.unique], imp = implicitStats(item), base = baseLines(item);
+  return `<ul class="implicits">${Object.entries(imp).map(([k,v]) => `<li><span>${STAT_LABELS[k]}</span><b>${v}</b></li>`).join('')}</ul>
+  ${base || item.affixes?.length ? `<ul class="affixes">${base}${affixLines(item)}</ul>` : ''}
+  ${unique ? `<p class="unique-power">${icon('star')} <b>${esc(unique.name)}</b> — ${esc(unique.description)}</p>` : ''}`;
+}
+const itemTitle = item => `<h3>${esc(item.name)}${item.upgrade ? ` <b>+${item.upgrade}</b>` : ''}</h3><small>${ITEM_RARITIES[item.rarity]} ${slotLabel(item.slot)} · ${esc(baseOf(item).name)} · ilvl ${item.itemLevel}</small>`;
 const delta = (label, value) => `<span class="delta ${value > .05 ? 'good' : value < -.05 ? 'bad' : ''}">${label} ${value > 0 ? '+' : ''}${num(value)}%</span>`;
 
 export function itemDetail(s, item, {equipped = false} = {}) {
-  const unique = UNIQUE_EFFECTS[item.unique], imp = implicitStats(item), slots = RING_SLOTS.includes(item.slot) ? RING_SLOTS : [item.slot];
+  const slots = RING_SLOTS.includes(item.slot) ? RING_SLOTS : [item.slot];
   const compare = equipped ? '' : slots.map(slot => {
-    const c = compareItem(s, item, slot), current = s.equipment[slot];
-    return `<div class="compare"><small>vs ${GEAR[slot].label.toLowerCase()}${current ? ' · ' + esc(current.name) : ' · empty'}</small><div>${delta('Damage', c.dps)}${delta('Toughness', c.tough)}</div></div>`;
+    const c = compareItem(s, item, slot), current = s.equipment[slot], extras = utilityChanges(s, item, slot);
+    return `<div class="compare"><small>If worn as ${GEAR[slot].label.toLowerCase()}</small><div>${delta('Damage', c.dps)}${delta('Toughness', c.tough)}</div>${extras.length ? `<p class="extras">${extras.map(e => `<span class="${e.diff > 0 ? 'good' : 'bad'}">${e.diff > 0 ? '+' : '−'}${e.text} ${e.label}</span>`).join('')}</p>` : ''}
+    ${current ? `<details><summary>Replaces <span class="c${current.rarity}">${esc(current.name)}${current.upgrade ? ` +${current.upgrade}` : ''}</span></summary>${itemBody(current)}</details>` : '<small>The slot is empty.</small>'}</div>`;
   }).join('');
+  const lock = `<button class="btn small icon-only ${item.locked ? 'on' : ''}" data-act="lock" data-arg="${esc(item.id)}" aria-pressed="${!!item.locked}" aria-label="${item.locked ? 'Unlock item' : 'Lock item: protect it from salvage and merging'}">${icon('lock')}</button>`;
   const actions = equipped
     ? `<button class="btn primary" data-act="forge-item" data-arg="${esc(item.id)}">${icon('hammer')} Forge</button>`
-    : `${slots.map(slot => `<button class="btn primary" data-act="equip" data-arg="${esc(item.id)}" data-slot="${slot}">${icon('check')} ${slots.length > 1 ? GEAR[slot].label : 'Equip'}</button>`).join('')}<button class="btn" data-act="forge-item" data-arg="${esc(item.id)}">${icon('hammer')} Craft</button><button class="btn danger" data-act="salvage" data-arg="${esc(item.id)}">${icon('coin')} ${fmt(salvageGold(item))}</button>`;
-  return `<div class="item-card r${item.rarity}"><div class="item-head"><span class="tile r${item.rarity} static">${icon(SLOT_ICONS[item.slot])}</span><div><h3>${esc(item.name)}${item.upgrade ? ` <b>+${item.upgrade}</b>` : ''}</h3><small>${ITEM_RARITIES[item.rarity]} ${slotLabel(item.slot)} · item level ${item.itemLevel}</small></div></div>
-  <ul class="implicits">${Object.entries(imp).map(([k,v]) => `<li><span>${STAT_LABELS[k]}</span><b>${v}</b></li>`).join('')}</ul>
-  ${item.affixes?.length ? `<ul class="affixes">${affixLines(item)}</ul>` : '<p class="muted small">No modifiers. Use an orb at the forge to add some.</p>'}
-  ${unique ? `<p class="unique-power">${icon('star')} <b>${esc(unique.name)}</b> — ${esc(unique.description)}</p>` : ''}
+    : `${slots.map(slot => `<button class="btn primary" data-act="equip" data-arg="${esc(item.id)}" data-slot="${slot}">${icon('check')} ${slots.length > 1 ? GEAR[slot].label : 'Equip'}</button>`).join('')}<button class="btn" data-act="forge-item" data-arg="${esc(item.id)}">${icon('hammer')} Craft</button><button class="btn danger" data-act="salvage" data-arg="${esc(item.id)}" ${item.locked ? 'disabled' : ''}>${icon('coin')} ${fmt(salvageGold(item))}</button>`;
+  return `<div class="item-card r${item.rarity}"><div class="item-head"><span class="tile r${item.rarity} static">${icon(SLOT_ICONS[item.slot])}</span><div>${itemTitle(item)}</div>${lock}</div>
+  ${itemBody(item)}${!item.affixes?.length && !item.unique ? '<p class="muted small">No modifiers. Use an orb at the forge to add some.</p>' : ''}
   ${compare}<div class="actions">${actions}</div></div>`;
 }
 
@@ -80,7 +86,7 @@ export function heroPanel(s) {
   <h4>Defense</h4><ul class="stat-list">
   ${row('Health', fmt(p.maxHp))}${row('Armor', num(p.defense), 'blocks more of small hits')}${row('Elemental resistance', num(p.resist) + '%')}${row('Life regeneration', num(p.regen) + ' / sec')}${row('Life leech', num(p.leech) + '%')}${row('Damage taken', num(p.damageTaken*100, 0) + '%')}</ul>
   <h4>Utility</h4><ul class="stat-list">
-  ${row('Mana', `${fmt(p.maxMana)} · ${num(p.manaRegen)} / sec`)}${row('Cooldown recovery', num(p.cooldownRate*100, 0) + '%')}${row('Movement speed', num(p.movementSpeed) + ' tiles / sec')}${row('Potions', `${p.potionCharges} × ${num(p.potionHeal*100, 0)}% health`)}</ul>
+  ${row('Mana', `${fmt(p.maxMana)} · ${num(p.manaRegen)} / sec`)}${row('Cooldown recovery', num(p.cooldownRate*100, 0) + '%')}${row('Movement speed', num(p.movementSpeed) + ' tiles / sec')}${row('Potions', `${p.potionCharges} × ${num(p.potionHeal*100, 0)}% health`)}${row('Gold found', '+' + num(p.goldFind, 0) + '%')}${row('Item rarity', '+' + num(p.magicFind, 0) + '%', 'better odds of rare and unique drops')}${p.allSkills ? row('All skill ranks', '+' + p.allSkills) : ''}</ul>
   <h4>Record</h4><ul class="stat-list">${row('Highest stage', s.maxStage)}${row('Enemies slain', fmt(s.kills))}${row('Guardians slain', fmt(s.bosses))}${row('Passive nodes', `${s.tree.length}${Object.keys(tree).length ? '' : ' · none yet'}`)}</ul>`;
 }
 
@@ -89,24 +95,26 @@ export function inventoryItems(s, filter = 'all', sort = 'recent') {
   const items = s.inventory.filter(i => filter === 'all' || (filter === 'rings' ? RING_SLOTS.includes(i.slot) : i.slot === filter));
   if (sort === 'rarity') items.sort((a,b) => b.rarity - a.rarity || b.itemLevel - a.itemLevel);
   if (sort === 'level') items.sort((a,b) => b.itemLevel - a.itemLevel || b.rarity - a.rarity);
+  if (sort === 'upgrade') { const gain = new Map(items.map(i => { const c = bestComparison(s, i); return [i.id, c.dps + c.tough]; })); items.sort((a,b) => gain.get(b.id) - gain.get(a.id)); }
   if (sort === 'slot') items.sort((a,b) => GEAR_SLOTS.indexOf(a.slot) - GEAR_SLOTS.indexOf(b.slot) || b.rarity - a.rarity || b.itemLevel - a.itemLevel);
   return items;
 }
 // Bulk salvage never touches rare, unique or forged gear.
-export const salvageCandidates = (s, filter = 'all') => inventoryItems(s, filter).filter(i => i.rarity < 2 && !i.unique && !i.upgrade);
+export const salvageCandidates = (s, filter = 'all') => inventoryItems(s, filter).filter(i => i.rarity < 2 && !i.unique && !i.upgrade && !i.locked);
 export const upgradeCount = s => s.inventory.filter(i => isUpgrade(bestComparison(s, i))).length;
 
 export function bagPanel(s, ui) {
   const items = inventoryItems(s, ui.bagFilter, ui.bagSort), junk = salvageCandidates(s, ui.bagFilter), gold = junk.reduce((n,i) => n + salvageGold(i), 0);
   const filters = [['all','All'],['rings','Rings'],...GEAR_SLOTS.filter(x => !RING_SLOTS.includes(x)).map(x => [x, GEAR[x].label])];
-  const tiles = items.map(i => itemTile(i, {upgrade:isUpgrade(bestComparison(s, i))})).join('');
+  const tiles = items.map(i => itemTile(i, {upgrade:isUpgrade(bestComparison(s, i)), fresh:!!ui.fresh?.has(i.id)})).join('');
   const blanks = ui.bagFilter === 'all' ? '<span class="tile blank"></span>'.repeat(Math.max(0, 48 - items.length)) : '';
   return `<div class="bag-top">${paperDoll(s)}<div class="bag-side"><div class="bag-count"><span><b>${s.inventory.length}</b> / 48</span><small>${icon('coin')} ${fmt(s.gold)}</small></div>
   <button class="btn small" data-act="equip-best" ${upgradeCount(s) ? '' : 'disabled'}>${icon('up')} Equip upgrades</button>
   <button class="btn small" data-act="salvage-junk" ${junk.length ? '' : 'disabled'}>${icon('trash')} Salvage ${junk.length} · ${fmt(gold)}</button>
   <button class="btn small" data-act="loot-filter">${icon('filter')} Loot filter</button></div></div>
-  <div class="bag-tools"><select id="bag-filter" aria-label="Filter by slot">${filters.map(([id,name]) => `<option value="${id}" ${ui.bagFilter===id?'selected':''}>${name}</option>`).join('')}</select><select id="bag-sort" aria-label="Sort items">${[['recent','Newest'],['rarity','Rarity'],['level','Item level'],['slot','Slot']].map(([id,name]) => `<option value="${id}" ${ui.bagSort===id?'selected':''}>${name}</option>`).join('')}</select><small class="muted">${esc(lootFilterSummary(s.lootFilter))}</small></div>
-  <div class="grid">${tiles}${blanks}</div>${items.length ? '<p class="muted small center">▲ marks gear that would make you stronger. Tap an item for details.</p>' : '<p class="muted center">Nothing here yet. Slain enemies drop gear onto the battlefield.</p>'}`;
+  <div class="bag-tools"><select id="bag-filter" aria-label="Filter by slot">${filters.map(([id,name]) => `<option value="${id}" ${ui.bagFilter===id?'selected':''}>${name}</option>`).join('')}</select><select id="bag-sort" aria-label="Sort items">${[['recent','Newest'],['upgrade','Best upgrade'],['rarity','Rarity'],['level','Item level'],['slot','Slot']].map(([id,name]) => `<option value="${id}" ${ui.bagSort===id?'selected':''}>${name}</option>`).join('')}</select><label class="toggle" title="Wear upgrades the moment they are picked up"><input type="checkbox" data-change="set-autoequip" ${s.settings.autoEquip ? 'checked' : ''}><span></span>Auto-equip</label></div>
+  <p class="muted small filter-line">${icon('filter')} ${esc(lootFilterSummary(s.lootFilter))}</p>
+  <div class="grid">${tiles}${blanks}</div>${items.length ? '<p class="muted small center">▲ would make you stronger · a dot marks new finds · locked items are never salvaged.</p>' : '<p class="muted center">Nothing here yet. Slain enemies drop gear onto the battlefield.</p>'}`;
 }
 
 // ---------- Skills ----------
@@ -119,8 +127,8 @@ export function skillsPanel(s, ui) {
   const list = SKILLS.map(def => {
     const rank = skillRank(s, def.id), locked = rank === 0, sp = skillParams(s, def.id, p.attackRange), slot = s.skills.slots.indexOf(def.id), rune = activeRune(s, def.id);
     const runes = rank >= RUNE_RANK ? `<div class="runes">${def.runes.map(r => `<button class="rune ${s.skills.runes[def.id]===r.id?'on':''}" data-act="rune" data-arg="${def.id}" data-rune="${r.id}" aria-pressed="${s.skills.runes[def.id]===r.id}"><b>${esc(r.name)}</b><small>${esc(r.description)}</small></button>`).join('')}</div>` : locked ? '' : `<small class="muted">Runes unlock at rank ${RUNE_RANK}: ${def.runes.map(r => esc(r.name)).join(' or ')}.</small>`;
-    return `<article class="skill-card ${locked?'locked':''}" style="--skill:${def.color}"><div class="skill-head"><span class="skill-icon">${icon(locked ? 'lock' : def.icon)}</span><div><h3>${esc(def.name)}${rune ? ` <em>${esc(rune.name)}</em>` : ''}</h3><small>${locked ? `Unlocks at level ${def.level}` : `Rank ${rank}/${MAX_SKILL_RANK} · ${num(sp.cooldown)}s · ${sp.mana} ${p.bloodMagic ? 'health' : 'mana'}`}</small></div>
-    ${locked ? '' : `<button class="btn small primary" data-act="rank" data-arg="${def.id}" ${s.skillPoints > 0 && rank < MAX_SKILL_RANK ? '' : 'disabled'} aria-label="Raise ${esc(def.name)} rank">${icon('plus')}</button>`}</div>
+    return `<article class="skill-card ${locked?'locked':''}" style="--skill:${def.color}"><div class="skill-head"><span class="skill-icon">${icon(locked ? 'lock' : def.icon)}</span><div><h3>${esc(def.name)}${rune ? ` <em>${esc(rune.name)}</em>` : ''}</h3><small>${locked ? `Unlocks at level ${def.level}` : `Rank ${baseRank(s, def.id)}/${MAX_SKILL_RANK}${gearRanks(s) ? ` <b class="gear-rank">+${gearRanks(s)}</b>` : ''} · ${num(sp.cooldown)}s · ${sp.mana} ${p.bloodMagic ? 'health' : 'mana'}`}</small></div>
+    ${locked ? '' : `<button class="btn small primary" data-act="rank" data-arg="${def.id}" ${s.skillPoints > 0 && baseRank(s, def.id) < MAX_SKILL_RANK ? '' : 'disabled'} aria-label="Raise ${esc(def.name)} rank">${icon('plus')}</button>`}</div>
     <p>${esc(def.description)} ${locked ? '' : esc(skillDetail(s, def.id, p.attackRange))}</p>${runes}
     ${locked ? '' : `<div class="skill-foot"><button class="btn small ${slot>=0?'on':''}" data-act="assign" data-arg="${def.id}">${slot >= 0 ? `In slot ${slot+1}` : `Put in slot ${ui.skillSlot+1}`}</button><label class="toggle"><input type="checkbox" data-change="auto-skill" data-arg="${def.id}" ${s.skills.auto[def.id] !== false ? 'checked' : ''}><span></span>Auto-cast</label></div>`}</article>`;
   }).join('');
@@ -154,30 +162,37 @@ export function forgeTarget(s, id) { return s.inventory.find(i => i.id === id) |
 export function forgePanel(s, ui) {
   const equipped = Object.values(s.equipment).filter(Boolean);
   const item = forgeTarget(s, ui.forgeItem) || equipped[0] || s.inventory[0];
-  if (!item) return '<p class="muted center">Find some equipment first.</p>';
-  const isEquipped = equipped.includes(item), up = upgradeCost(item), tab = ui.forgeTab;
+  if (!item && ui.forgeTab !== 'gamble') return '<p class="muted center">Find some equipment first.</p>';
+  const tab = ui.forgeTab, tabs = `<div class="tabs sub">${[['upgrade','Temper'],['orbs','Orbs'],['bench','Bench'],['gamble','Gamble']].map(([id,name]) => `<button class="${tab===id?'on':''}" data-act="forge-tab" data-arg="${id}">${name}</button>`).join('')}</div>`;
+  if (tab === 'gamble') {
+    const cost = gambleCost(s), can = s.gold >= cost && s.inventory.length < 48;
+    const slots = [...GEAR_SLOTS.filter(x => !RING_SLOTS.includes(x)), 'ring'];
+    return `${tabs}<div class="forge-box"><p>Buy an unidentified piece at item level <b>${s.maxStage}</b>. Most are magic, about a third are rare, and a few are unique. The base is random too.</p><div class="gamble-grid">${slots.map(slot => `<button class="gamble" data-act="gamble" data-arg="${slot}" ${can ? '' : 'disabled'}>${icon(SLOT_ICONS[slot === 'ring' ? 'leftRing' : slot])}<b>${slot === 'ring' ? 'Ring' : GEAR[slot].label}</b></button>`).join('')}</div><p class="center"><b class="c2">${fmt(cost)}</b> ${icon('coin')} each · you have ${fmt(s.gold)}${s.inventory.length >= 48 ? ' · bag full' : ''}</p></div>
+    <div class="forge-box"><h4>Bases</h4><p class="muted small">Every slot drops as one of three bases.</p>${slots.map(slot => `<p class="small base-row"><b>${slot === 'ring' ? 'Ring' : GEAR[slot].label}</b> ${BASES[slot === 'ring' ? 'leftRing' : slot].map(b => `${esc(b.name)}${b.bonus ? ` <span class="muted">(${esc(bonusLines(b).join(', '))})</span>` : ''}`).join(' · ')}</p>`).join('')}</div>`;
+  }
+  const isEquipped = equipped.includes(item), up = upgradeCost(item);
   const picker = `<div class="picker">${equipped.map(i => itemTile(i, {act:'forge-pick', selected:i===item})).join('')}<span class="picker-gap"></span>${s.inventory.map(i => itemTile(i, {act:'forge-pick', selected:i===item})).join('')}</div>`;
-  const head = `<div class="item-card r${item.rarity} compact"><div class="item-head"><span class="tile r${item.rarity} static">${icon(SLOT_ICONS[item.slot])}</span><div><h3>${esc(item.name)}${item.upgrade ? ` <b>+${item.upgrade}</b>` : ''}</h3><small>${ITEM_RARITIES[item.rarity]} ${slotLabel(item.slot)} · item level ${item.itemLevel}${isEquipped ? ' · equipped' : ''}</small></div></div><ul class="implicits">${Object.entries(implicitStats(item)).map(([k,v]) => `<li><span>${STAT_LABELS[k]}</span><b>${v}</b></li>`).join('')}</ul>${item.affixes?.length ? `<ul class="affixes">${affixLines(item)}</ul>` : ''}</div>`;
+  const head = `<div class="item-card r${item.rarity} compact"><div class="item-head"><span class="tile r${item.rarity} static">${icon(SLOT_ICONS[item.slot])}</span><div>${itemTitle(item)}${isEquipped ? '<small> · equipped</small>' : ''}</div></div>${itemBody(item)}</div>`;
   let body = '';
   if (tab === 'upgrade') {
     const next = implicitStats({...item, upgrade:item.upgrade+1}), now = implicitStats(item);
     body = isEquipped ? `<div class="forge-box"><p>Temper this piece: each rank adds 10% of its base stats.</p><ul class="implicits">${Object.keys(now).map(k => `<li><span>${STAT_LABELS[k]}</span><b>${now[k]} → <i>${next[k]}</i></b></li>`).join('')}</ul><div class="actions"><button class="btn primary" data-act="upgrade" data-arg="${item.slot}" ${s.gold >= up.gold ? '' : 'disabled'}>${icon('hammer')} Upgrade to +${item.upgrade+1} · ${fmt(up.gold)} ${icon('coin')}</button><button class="btn" data-act="upgrade-max" data-arg="${item.slot}" ${s.gold >= up.gold ? '' : 'disabled'}>Max</button></div></div>` : '<div class="forge-box"><p class="muted">Only equipped gear can be tempered. Equip this piece first, or pick an equipped item above.</p></div>';
-    const merges = GEAR_SLOTS.flatMap(slot => [0,1,2].map(rarity => { const n = s.inventory.filter(i => i.slot === slot && i.rarity === rarity).length; return n >= 3 ? `<button class="btn small" data-act="merge" data-arg="${slot}" data-rarity="${rarity}" ${s.gold >= 75 ? '' : 'disabled'}>3 × ${ITEM_RARITIES[rarity]} ${slotLabel(slot)} → ${ITEM_RARITIES[rarity+1]}</button>` : ''; })).join('');
+    const merges = GEAR_SLOTS.flatMap(slot => [0,1,2].map(rarity => { const n = s.inventory.filter(i => i.slot === slot && i.rarity === rarity && !i.locked).length; return n >= 3 ? `<button class="btn small" data-act="merge" data-arg="${slot}" data-rarity="${rarity}" ${s.gold >= 75 ? '' : 'disabled'}>3 × ${ITEM_RARITIES[rarity]} ${slotLabel(slot)} → ${ITEM_RARITIES[rarity+1]}</button>` : ''; })).join('');
     body += `<div class="forge-box"><h4>Merge</h4><p class="muted small">Fuse three bag items of one slot and rarity into the next rarity. 75 gold.</p><div class="actions wrap">${merges || '<small class="muted">No matching sets of three in your bag.</small>'}</div></div>`;
   } else if (tab === 'orbs') {
     body = `<div class="orb-grid">${Object.entries(CRAFT_OPERATIONS).map(([id, op]) => {
-      const have = s.orbs[id] || 0, cost = craftCost(op, item).gold;
-      return `<button class="orb-btn" data-act="craft" data-arg="${id}" ${have > 0 && s.gold >= cost ? '' : 'disabled'}><span class="orb-count">${have}</span><b>${esc(op.name.replace('Orb of ','').replace(' Orb',''))}</b><small>${esc(op.flavor)}</small><em>${fmt(cost)} ${icon('coin')}</em></button>`;
+      const have = s.orbs[id] || 0, cost = craftCost(op, item).gold, block = craftBlock(item, id) || (have < 1 ? 'None held' : s.gold < cost ? 'Not enough gold' : '');
+      return `<button class="orb-btn ${block && have > 0 ? 'blocked' : ''}" data-act="craft" data-arg="${id}" ${block ? 'disabled' : ''}><span class="orb-count">${have}</span><b>${esc(op.name.replace('Orb of ','').replace(' Orb',''))}</b><small>${esc(op.flavor)}</small><em>${block ? esc(block) : `${fmt(cost)} ${icon('coin')}`}</em></button>`;
     }).join('')}</div><p class="muted small center">Orbs drop from slain enemies. Each use also costs gold.</p>`;
   } else {
-    const used = affixSlots(item), options = Object.entries(AFFIXES).filter(([id, def]) => def.slots.includes(item.slot) && !item.affixes?.some(a => a.id === id));
+    const used = affixSlots(item), options = Object.entries(AFFIXES).filter(([id, def]) => def.slots.includes(item.slot) && !item.affixes?.some(a => a.id === id) && used[def.kind] < AFFIX_LIMIT && def.tiers[0].minLevel <= item.itemLevel);
     const affixId = options.some(([id]) => id === ui.benchAffix) ? ui.benchAffix : options[0]?.[0], def = AFFIXES[affixId];
     const tiers = def ? def.tiers.map((t, i) => ({tier:def.tiers.length - i, ...t})).filter(t => t.minLevel <= item.itemLevel).reverse() : [];
     const tier = tiers.some(t => t.tier === ui.benchTier) ? ui.benchTier : tiers[0]?.tier, cost = def && tier ? benchCost(def, tier, item.itemLevel).gold : 0;
-    const blocked = item.rarity === 0 ? 'The bench needs a magic or rare item. Use an orb first.' : !def ? 'No further modifiers fit this item.' : used[def.kind] >= AFFIX_LIMIT ? `All ${def.kind} slots are full.` : '';
+    const blocked = item.rarity === 0 ? 'The bench needs a magic or rare item. Use an orb first.' : !def ? 'Every modifier slot is full, or nothing else fits this item.' : used[def.kind] >= AFFIX_LIMIT ? `All ${def.kind} slots are full.` : '';
     body = `<div class="forge-box"><p>Add a modifier of your choice for gold. Prefixes ${used.prefix}/${AFFIX_LIMIT} · suffixes ${used.suffix}/${AFFIX_LIMIT}.</p>${def ? `<div class="bench"><select id="bench-affix" aria-label="Modifier">${options.map(([id, d]) => `<option value="${id}" ${id===affixId?'selected':''}>${d.kind==='prefix'?'P':'S'} · ${esc(d.label.replace(/^% /,''))}</option>`).join('')}</select><select id="bench-tier" aria-label="Tier">${tiers.map(t => `<option value="${t.tier}" ${t.tier===tier?'selected':''}>T${t.tier} · ${t.minVal}–${t.maxVal}</option>`).join('')}</select></div>` : ''}${blocked ? `<p class="muted small">${blocked}</p>` : ''}<div class="actions"><button class="btn primary" data-act="bench" data-affix="${affixId||''}" data-tier="${tier||''}" ${!blocked && s.gold >= cost ? '' : 'disabled'}>${icon('hammer')} Craft · ${fmt(cost)} ${icon('coin')}</button></div></div>`;
   }
-  return `${picker}${head}<div class="tabs sub">${[['upgrade','Temper'],['orbs','Orbs'],['bench','Bench']].map(([id,name]) => `<button class="${tab===id?'on':''}" data-act="forge-tab" data-arg="${id}">${name}</button>`).join('')}</div>${body}`;
+  return `${picker}${head}${tabs}${body}`;
 }
 
 // ---------- World: map, rifts, quests ----------
@@ -227,12 +242,14 @@ export function enemyDossier(s) {
 }
 export function lootFilterForm(s) {
   const f = s.lootFilter;
-  return `<form id="filter-form"><p class="muted small">Drops that fail the filter are turned into gold on pickup. Uniques can always get through.</p>
+  return `<form id="filter-form"><p class="muted small">Drops that fail the filter are turned into gold on pickup.</p>
+  <div class="presets">${['Keep all','Magic +','Rare +','Unique only'].map((name, i) => `<button type="button" class="btn small ${f.minRarity===i?'on':''}" data-act="filter-preset" data-arg="${i}">${name}</button>`).join('')}</div>
   <label class="field">Minimum rarity<select name="minRarity">${ITEM_RARITIES.map((r,i) => `<option value="${i}" ${f.minRarity===i?'selected':''}>${i ? r + ' or better' : 'Everything'}</option>`).join('')}</select></label>
   <label class="field">Minimum item level<input name="minItemLevel" type="number" min="1" value="${f.minItemLevel}"></label>
   <fieldset><legend>Slots</legend><div class="checks">${GEAR_SLOTS.map(slot => `<label><input type="checkbox" name="slots" value="${slot}" ${f.slots.includes(slot)?'checked':''}>${GEAR[slot].label}</label>`).join('')}</div></fieldset>
-  <fieldset><legend>Only keep items with any of (optional)</legend><div class="checks">${Object.entries(AFFIXES).map(([id,a]) => `<label><input type="checkbox" name="affixes" value="${id}" ${f.affixes.includes(id)?'checked':''}>${esc(a.label.replace(/^% /,''))}</label>`).join('')}</div></fieldset>
-  <label class="toggle"><input type="checkbox" name="alwaysShowUnique" ${f.alwaysShowUnique?'checked':''}><span></span>Always keep uniques</label>
+  <fieldset><legend>Only keep items with any of (optional)</legend><div class="checks">${Object.entries(AFFIXES).map(([id,a]) => `<label><input type="checkbox" name="affixes" value="${id}" ${f.affixes.includes(id)?'checked':''}>${esc(a.label.replace(/^% /,''))} <small class="muted">${esc(a.name)}</small></label>`).join('')}</div></fieldset>
+  <label class="toggle row-toggle"><input type="checkbox" name="keepUpgrades" ${f.keepUpgrades?'checked':''}><span></span><div>Always keep upgrades<small>Anything that would make you stronger gets through</small></div></label>
+  <label class="toggle row-toggle"><input type="checkbox" name="alwaysShowUnique" ${f.alwaysShowUnique?'checked':''}><span></span><div>Always keep uniques</div></label>
   <div class="actions"><button class="btn primary" type="submit">Save filter</button></div></form>`;
 }
 export function offlineSummary(s, r) {

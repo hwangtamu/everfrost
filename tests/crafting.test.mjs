@@ -29,7 +29,8 @@ test('rarity dictates explicit modifier counts inside prefix and suffix limits',
 test('tiers gate by item level and values stay inside their tier range', () => {
   for (const id of Object.keys(AFFIXES)) {
     const def = AFFIXES[id];
-    for (let ilvl = 1; ilvl <= 24; ilvl += 3) for (let n = 0; n < 40; n++) {
+    for (let ilvl = 1; ilvl <= 70; ilvl += 3) for (let n = 0; n < 40; n++) {
+      if (def.tiers[0].minLevel > ilvl) continue; // this family does not exist yet at this level
       const a = makeAffix(id, ilvl, rng);
       assert(a.tier >= 1 && a.tier <= def.tiers.length);
       const t = tierOf(def, a.tier);
@@ -40,8 +41,11 @@ test('tiers gate by item level and values stay inside their tier range', () => {
   }
   // A high item level can reach Tier 1; a low one never can.
   const low = new Set(Array.from({length: 300}, () => makeAffix('might', 2, rng).tier));
-  const high = new Set(Array.from({length: 300}, () => makeAffix('might', 30, rng).tier));
-  assert(low.has(5)); assert(!low.has(1)); assert(high.has(1));
+  const high = new Set(Array.from({length: 300}, () => makeAffix('might', 60, rng).tier));
+  assert.equal(AFFIXES.might.tiers.length, 8);
+  assert(low.has(8)); assert(!low.has(1)); assert(high.has(1));
+  assert(!high.has(8), 'deep drops only roll the best five tiers that fit');
+  assert.equal(AFFIXES.mastery.tiers.length, 2);
 });
 
 test('crafting orbs follow rarity transitions and charge exact costs once', () => {
@@ -100,13 +104,13 @@ test('alchemy, full rerolls and bench crafting stay within all caps', () => {
   assert(prefixes.length >= 2 && prefixes.length <= 3);
   assert(id);
 
-  const def = AFFIXES[id], cost = benchCost(def, 3, item.itemLevel);
+  const def = AFFIXES[id], cost = benchCost(def, 6, item.itemLevel);
   const gold = s.gold;
-  const r = benchCraft(s, item, id, 3, rng);
+  const r = benchCraft(s, item, id, 6, rng);
   assert(r.ok);
   const affix = item.affixes.find(a => a.id === id);
-  assert(affix); assert.equal(affix.tier, 3);
-  assert.equal(affix.min, def.tiers.at(-3).minVal);
+  assert(affix); assert.equal(affix.tier, 6);
+  assert.equal(affix.min, def.tiers[2].minVal);
   assert.equal(s.gold, gold - cost.gold);
   assert(!benchCraft(s, item, id, 3, rng).ok); // duplicates rejected
   assert(!benchCraft(s, makeItem('hand', 1, 3), id, 3, rng).ok); // item level too low

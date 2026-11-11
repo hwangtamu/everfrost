@@ -1,7 +1,7 @@
 import {makeKeystone,validKeystone,rollKeystone,riftBonuses,rewardQuantity,makeRiftMap,RIFT_WAVES,KEYSTONE_RECIPES} from './keystones.js';
-import {GEAR,GEAR_SLOTS,RING_SLOTS,LEGACY_SLOTS,canonicalSlot,rollImplicits,implicitStats,migrateGear} from './gear.js';
+import {GEAR,GEAR_SLOTS,RING_SLOTS,LEGACY_SLOTS,BASES,baseOf,baseBonuses,canonicalSlot,rollImplicits,implicitStats,migrateGear} from './gear.js';
 import {generateMap, seededRandom, distance, walkable, findPath, moveAlong, reveal, hasLineOfSight} from './world.js';
-import {AFFIXES, UNIQUE_EFFECTS, rollAffixes, affixBonuses, lootRarity, uniquesForSlot, uniqueBonuses} from './loot.js';
+import {AFFIXES, UNIQUE_EFFECTS, rollAffixes, affixBonuses, lootRarity, uniquesForSlot, uniqueBonuses, retier} from './loot.js';
 import {ENEMY_TIERS, MODIFIERS, rollModifiers} from './monsters.js';
 import {normalizeLootFilter,matchesLootFilter} from './loot-filter.js';
 import {CRAFT_OPERATIONS} from './crafting.js';
@@ -38,6 +38,8 @@ const hasUnique = (s,key) => Object.values(s.equipment).some(i=>i?.unique===key)
 export function stats(s) {
   const eq = Object.values(s.equipment), a = affixBonuses(eq), u = uniqueBonuses(eq), t = treeBonuses(s);
   for (const stat in u) a[stat] = (a[stat]||0) + u[stat];
+  const b = baseBonuses(eq);
+  for (const stat in b) a[stat] = (a[stat]||0) + b[stat];
   for (const stat of ['critical','criticalMultiplier','haste','movement','leech','resist']) a[stat] = (a[stat]||0) + (t[stat]||0);
   if (s.effects?.soulgorge > 0) { a.haste += 25; a.movement += 25; }
   if (s.effects?.warcry > 0) a.haste += 20;
@@ -56,13 +58,14 @@ export function stats(s) {
     attackSpeed, attackInterval: 1 / attackSpeed,
     fire: a.fire, cold: a.cold, lightning: a.lightning, resist: Math.min(75, a.resist),
     leech: Math.min(15, a.leech), regen: a.regen + maxHp * (t.regenPct||0) / 100, haste: Math.min(150, a.haste),
-    maxMana: 40 + s.level * 3 + (t.manaMax||0), manaRegen: (2.2 + s.level * .1) * (1 + (t.manaRegen||0)/100),
-    splash: BASE_COMBAT.splash * (1 + (t.splash||0)/100),
-    skillDamage: 1 + (t.skillDamage||0)/100, cooldownRate: 1 + (t.cooldown||0)/100,
+    maxMana: 40 + s.level * 3 + (t.manaMax||0) + (a.mana||0), manaRegen: (2.2 + s.level * .1) * (1 + ((t.manaRegen||0)+(a.manaRegen||0))/100),
+    splash: BASE_COMBAT.splash * (1 + ((t.splash||0)+(a.splash||0))/100),
+    skillDamage: 1 + ((t.skillDamage||0)+(a.skillDamage||0))/100, cooldownRate: 1 + ((t.cooldown||0)+(a.cooldown||0))/100,
+    goldFind: Math.min(300, a.goldFind||0), magicFind: Math.min(300, a.magicFind||0), allSkills: a.allSkills||0,
     damageMore: (1 + (t.damageMore||0)/100) * (1 - (t.damageLess||0)/100),
     damageTaken: (1 + (t.takenMore||0)/100) * (1 - (t.takenLess||0)/100),
     nonCritMultiplier: 1 - (t.nonCritLess||0)/100, bloodMagic: !!t.bloodMagic,
-    potionCharges: BASE_COMBAT.potionCharges + (t.potionCharges||0), potionHeal: BASE_COMBAT.potionHeal * (1 + (t.potionPower||0)/100)
+    potionCharges: BASE_COMBAT.potionCharges + (t.potionCharges||0), potionHeal: BASE_COMBAT.potionHeal * (1 + ((t.potionPower||0)+(a.potion||0))/100)
   };
 }
 
@@ -104,32 +107,34 @@ export function skillTargets(s,id) {
   return [];
 }
 
-export function makeItem(slot, rarity = 0, stage = 1, rng = Math.random) {
+export function makeItem(slot, rarity = 0, stage = 1, rng = Math.random, baseId) {
   slot=canonicalSlot(slot);
   if(!GEAR[slot])throw new Error('Unknown gear slot');
   stage=Number.isSafeInteger(stage)&&stage>0?stage:1;
-  const implicits=rollImplicits(slot,stage,rng);
+  // Drops roll one of the slot's three bases; pass a base id to force one.
+  const base=BASES[slot].find(b=>b.id===baseId)||(baseId===undefined?BASES[slot][Math.floor(rng()*BASES[slot].length)]:BASES[slot][0]);
+  const implicits=rollImplicits(slot,stage,rng,base);
   const affixes = rollAffixes(slot, rarity, stage, rng);
   const pool = rarity === 3 ? uniquesForSlot(slot) : [];
   const unique = pool.length ? pool[Math.floor(rng()*pool.length)] : null;
   const prefix = affixes.find(a => AFFIXES[a.id].kind === 'prefix');
   const suffix = affixes.find(a => AFFIXES[a.id].kind === 'suffix');
-  const name = unique ? unique.name+' '+GEAR[slot].name : `${prefix ? AFFIXES[prefix.id].name + ' ' : ''}${GEAR[slot].name}${suffix ? ' ' + AFFIXES[suffix.id].name : ''}`;
-  return {id:id(), slot, rarity, name, itemLevel:stage, implicits, upgrade:0, affixes, unique:unique?unique.id:null};
+  const name = unique ? unique.name+' '+base.name : `${prefix ? AFFIXES[prefix.id].name + ' ' : ''}${base.name}${suffix ? ' ' + AFFIXES[suffix.id].name : ''}`;
+  return {id:id(), slot, base:base.id, rarity, name, itemLevel:stage, implicits, upgrade:0, affixes, unique:unique?unique.id:null};
 }
 
 export function createGame(now = Date.now(), seed = Math.floor(Math.random() * 4294967296)) {
   const s = {
     version:5, name:'Wanderer', level:1, xp:0, gold:120, stage:1, maxStage:1,
     killsInStage:0, kills:0, bosses:0, crafted:0, hp:105, auto:true, advance:true, speed:1,
-    inventory:[], orbs:zeroOrbs(), equipment:{...Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null])),hand:makeItem('hand'),chest:makeItem('chest')},
+    inventory:[], orbs:zeroOrbs(), equipment:{...Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null])),hand:makeItem('hand',0,1,Math.random,'gauntlets'),chest:makeItem('chest',0,1,Math.random,'cuirass')},
     points:0, skillPoints:0, tree:[], skills:defaultSkills(), mana:43, potion:{charges:BASE_COMBAT.potionCharges,progress:0,lock:0}, deathStreak:0, castLock:0, cooldowns:zeroCooldowns(),
     enemy:null, enemies:[], attackTimer:0, attackCount:0, respawn:0, log:[], claimed:[],
     lastSave:now, playTime:0, runNumber:0, riftsCleared:0, tierKills:{normal:0,magic:0,rare:0,unique:0},
-    settings:{sound:false,motion:true,autoPotion:true}, hazards:[], effects:{chill:0}, died:false,
+    settings:{sound:false,motion:true,autoPotion:true,autoEquip:false}, hazards:[], effects:{chill:0}, died:false,
     groundLoot:[],lootFilter:normalizeLootFilter(),location:'expedition',returnPortal:false,expedition:null,keystones:[],riftPortal:null,rift:null,lastRift:null
   };
-  s.inventory = [makeItem('hand',1), makeItem('neck'), makeItem('chest',1)];
+  s.inventory = [makeItem('hand',1,1,Math.random,'gauntlets'), makeItem('neck',0,1,Math.random,'pendant'), makeItem('chest',1,1,Math.random,'cuirass')];
   startExpedition(s, seed);
   addLog(s,'Cut through the packs to break the guardian\u2019s seal.','system');
   return s;
@@ -250,13 +255,15 @@ export function effectiveDamage(s, enemy, physical, elemental = 0) {
 
 function giveItem(s,item,events) {
   if(item.kind==='keystone'){if(!s.keystones.some(k=>k.id===item.id)){s.keystones.unshift(item);events.push({type:'keystone',item});addLog(s,`${item.name} added to your keystone pouch.`,'loot');}return;}
-  if(s.lootFilter&&!matchesLootFilter(item,s.lootFilter)){
+  // The filter can spare anything that would make the hero stronger right now.
+  if(s.lootFilter&&!matchesLootFilter(item,s.lootFilter)&&!(s.lootFilter.keepUpgrades&&isUpgrade(bestComparison(s,item)))){
     const gold=salvageGold(item);s.gold+=gold;
     addLog(s,`Filter salvaged ${item.name} · +${gold} gold.`,'salvage');
     events.push({type:'filteredLoot',item,gold});return;
   }
   if (s.inventory.length < 48) {
     s.inventory.unshift(item); events.push({type:'loot',item}); addLog(s,`Found ${item.name}.`,'loot');
+    if (s.settings?.autoEquip) { const c = bestComparison(s,item); if (isUpgrade(c) && equip(s,item.id,c.slot)) { events.push({type:'autoEquip',item}); addLog(s,`Equipped ${item.name}.`,'loot'); } }
   } else { const gold=salvageGold(item); s.gold+=gold; addLog(s,`Satchel full. New equipment salvaged for ${gold} gold.`,'salvage'); }
 }
 
@@ -315,7 +322,8 @@ export function defeatEnemy(s,enemy,events = [],rng = Math.random) {
   if (enemy.rewarded) return;
   enemy.hp = 0; enemy.rewarded = true;
   const reward = ENEMY_TIERS[enemy.tier].reward * (1 + enemy.modifiers.length * .15);
-  const gold = Math.round((6+s.stage*2) * reward), xp = Math.round((7+s.stage*2) * reward);
+  const finds = stats(s);
+  const gold = Math.round((6+s.stage*2) * reward * (1 + finds.goldFind/100)), xp = Math.round((7+s.stage*2) * reward);
   s.gold += gold; s.kills++; s.killsInStage++; s.tierKills[enemy.tier]++;
   for (const orb of rollOrbs(enemy.tier, rng)) {
     s.orbs[orb] = (s.orbs[orb] || 0) + 1;
@@ -335,7 +343,7 @@ export function defeatEnemy(s,enemy,events = [],rng = Math.random) {
   const bonus=s.location==='rift'?riftBonuses(s.rift.keystone):{quantity:0,rarity:0,itemLevel:0};
   const quantity = rewardQuantity(enemy.tier === 'unique' ? 2 : 1,bonus.quantity,rng);
   if (rng() < dropChance) for (let i = 0; i < quantity; i++) {
-    const rarity = lootRarity(enemy.tier,()=>rng()/(1+bonus.rarity/100));
+    const rarity = lootRarity(enemy.tier,()=>rng()/(1+(bonus.rarity+finds.magicFind)/100));
     dropItem(s,makeItem(GEAR_SLOTS[Math.floor(rng()*GEAR_SLOTS.length)],rarity,s.stage+bonus.itemLevel,rng),enemy,events);
   }
   const keystone=rollKeystone(enemy.tier,s.stage,rng);
@@ -648,11 +656,53 @@ export function equip(s,id,slot){
  const old=s.equipment[slot];s.inventory.splice(i,1);item.slot=slot;s.equipment[slot]=item;
  if(old)s.inventory.push(old);s.hp=Math.min(s.hp,stats(s).maxHp);return true;
 }
-export function salvage(s,id){const i=s.inventory.findIndex(x=>x.id===id);if(i<0)return false;const item=s.inventory.splice(i,1)[0];s.gold+=salvageGold(item);return true;}
+export function salvage(s,id,rng=Math.random){
+  const i=s.inventory.findIndex(x=>x.id===id);if(i<0||s.inventory[i].locked)return false;
+  const item=s.inventory.splice(i,1)[0];s.gold+=salvageGold(item);
+  // Breaking down fine gear by hand can free an orb.
+  const orb=item.rarity===3?['regal','alchemy','chaos'][Math.floor(rng()*3)]:item.rarity===2&&rng()<.3?['transmute','augment','scour'][Math.floor(rng()*3)]:null;
+  if(orb){s.orbs[orb]=(s.orbs[orb]||0)+1;s.lastSalvageOrb=orb;addLog(s,`Salvage yielded ${CRAFT_OPERATIONS[orb].name}.`,'loot');}else s.lastSalvageOrb=null;
+  return true;
+}
+export function toggleLock(s,id){
+  const item=s.inventory.find(x=>x.id===id)||Object.values(s.equipment).find(x=>x?.id===id);
+  if(!item)return false;item.locked=!item.locked;if(!item.locked)delete item.locked;return true;
+}
+// How a hypothetical swap changes damage and survivability, in percent.
+export function compareItem(s,item,slot=item.slot){
+  const before=combatStats({...s,effects:{chill:0}}),after=combatStats({...s,effects:{chill:0},equipment:{...s.equipment,[slot]:{...item,slot}}});
+  return {slot,dps:(after.dps/before.dps-1)*100,tough:(after.toughness/before.toughness-1)*100};
+}
+// Rings are compared against whichever finger gains the most.
+export function bestComparison(s,item){
+  return (RING_SLOTS.includes(item.slot)?RING_SLOTS:[item.slot]).map(slot=>compareItem(s,item,slot)).sort((a,b)=>(b.dps+b.tough)-(a.dps+a.tough))[0];
+}
+export const isUpgrade=c=>c.dps+c.tough>1&&c.dps>-12&&c.tough>-12;
+export function equipUpgrades(s){
+  let count=0;
+  for(let guard=0;guard<30;guard++){
+    const best=s.inventory.map(item=>({item,c:bestComparison(s,item)})).filter(x=>isUpgrade(x.c)).sort((a,b)=>(b.c.dps+b.c.tough)-(a.c.dps+a.c.tough))[0];
+    if(!best||!equip(s,best.item.id,best.c.slot))break;
+    count++;
+  }
+  return count;
+}
+// A gold sink with a chance at greatness: buy an unidentified piece for a chosen slot.
+export const gambleCost=s=>Math.round(150+45*s.maxStage);
+export function gamble(s,slot,rng=Math.random){
+  slot=slot==='ring'?'leftRing':slot;
+  if(!GEAR[slot])return {ok:false,reason:'Choose a slot.'};
+  if(s.inventory.length>=48)return {ok:false,reason:'Your bag is full.'};
+  const cost=gambleCost(s);if(s.gold<cost)return {ok:false,reason:`Not enough gold (${cost}).`};
+  s.gold-=cost;
+  const roll=rng(),item=makeItem(slot,roll<.06?3:roll<.4?2:1,s.maxStage,rng);
+  s.inventory.unshift(item);addLog(s,`Gambled for ${item.name}.`,'loot');
+  return {ok:true,item,cost};
+}
 export function salvageGold(item){return Math.round((2+item.rarity*3+item.upgrade)*(1+(item.itemLevel||1)*.25));}
 export function upgradeCost(item){return {gold:40*(item.upgrade+1)};}
 export function upgrade(s,slot){const item=s.equipment[slot];if(!item)return false;const cost=upgradeCost(item);if(s.gold<cost.gold)return false;s.gold-=cost.gold;item.upgrade++;s.crafted++;return true;}
-export function merge(s,slot,rarity){if(!GEAR_SLOTS.includes(slot)||!Number.isInteger(rarity)||rarity<0||rarity>2)return false;const items=s.inventory.filter(x=>x.slot===slot&&x.rarity===rarity).slice(0,3);if(items.length<3||s.gold<75)return false;const ids=new Set(items.map(x=>x.id));s.inventory=s.inventory.filter(x=>!ids.has(x.id));const item=makeItem(slot,rarity+1,Math.max(s.stage,...items.map(x=>x.itemLevel||1)));item.upgrade=Math.max(...items.map(x=>x.upgrade));s.inventory.unshift(item);s.gold-=75;s.crafted++;addLog(s,`Forged ${item.name} from three pieces of equipment.`,'loot');return item;}
+export function merge(s,slot,rarity){if(!GEAR_SLOTS.includes(slot)||!Number.isInteger(rarity)||rarity<0||rarity>2)return false;const items=s.inventory.filter(x=>x.slot===slot&&x.rarity===rarity&&!x.locked).slice(0,3);if(items.length<3||s.gold<75)return false;const ids=new Set(items.map(x=>x.id));s.inventory=s.inventory.filter(x=>!ids.has(x.id));const item=makeItem(slot,rarity+1,Math.max(s.stage,...items.map(x=>x.itemLevel||1)));item.upgrade=Math.max(...items.map(x=>x.upgrade));s.inventory.unshift(item);s.gold-=75;s.crafted++;addLog(s,`Forged ${item.name} from three pieces of equipment.`,'loot');return item;}
 export function learn(s,id){return allocate(s,id);}
 export function travel(s,stage){if(s.location==='rift')return false;if(s.location==='village')return startVillageStage(s,stage);if(!Number.isInteger(stage)||stage<1||stage>s.maxStage)return false;s.stage=stage;startExpedition(s);return true;}
 export const QUESTS=[
@@ -821,7 +871,7 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
     const validItem=i=>i&&typeof i.id==='string'&&typeof i.name==='string'&&GEAR_SLOTS.includes(canonicalSlot(i.slot))&&Number.isInteger(i.rarity)&&i.rarity>=0&&i.rarity<=3&&Number.isInteger(i.upgrade)&&i.upgrade>=0;
     if(!data.inventory.every(validItem)||!Object.entries(data.equipment).every(([slot,item])=>GEAR_SLOTS.includes(canonicalSlot(slot))&&(item===null||(validItem(item)&&item.slot===slot))))throw Error('Invalid equipment');
     if(typeof data.name!=='string'||!data.name.trim()||!Array.isArray(data.log)||!data.log.every(x=>x&&typeof x.text==='string'&&Number.isFinite(x.time))||!Array.isArray(data.claimed))throw Error('Invalid hero');
-    const fresh=createGame(now),s={...fresh,...data,version:5,name:data.name.slice(0,20),settings:{sound:false,motion:true,autoPotion:true,...data.settings}};
+    const fresh=createGame(now),s={...fresh,...data,version:5,name:data.name.slice(0,20),settings:{sound:false,motion:true,autoPotion:true,autoEquip:false,...data.settings}};
     // v5 replaced the four masteries with the passive tree and skill ranks: older
     // heroes get every point back to spend again.
     delete s.talents;
@@ -844,20 +894,11 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
       item.affixes=[];
       for(const a of rawAffixes){
         if(item.affixes.some(x=>x.id===a.id))continue;
-        const def=AFFIXES[a.id],maxTier=def.tiers.length;
-        if(!(Number.isFinite(a.min)&&Number.isFinite(a.max))){
-          // Legacy affixes: place the value in the tier range that contains it.
-          let idx=def.tiers.findIndex(t=>a.value>=t.minVal&&a.value<=t.maxVal);
-          if(idx<0){let best=0,bestDist=Infinity;def.tiers.forEach((t,i)=>{const d=Math.abs(a.value-(t.minVal+t.maxVal)/2);if(d<bestDist){bestDist=d;best=i;}});idx=best;}
-          const t=def.tiers[idx];
-          a.tier=maxTier-idx;a.min=t.minVal;a.max=t.maxVal;
-          if(a.value<t.minVal)a.value=t.minVal;if(a.value>t.maxVal)a.value=t.maxVal;
-        }else{
-          a.tier=Math.max(1,Math.min(maxTier,Math.round(Number(a.tier)||maxTier)));
-        }
+        retier(a);
         item.affixes.push(a);
       }
       item.itemLevel=Number.isInteger(item.itemLevel)&&item.itemLevel>=1?item.itemLevel:1;
+      if(item.locked!==true)delete item.locked;
       if(!Object.values(UNIQUE_EFFECTS).some(u=>u.id===item.unique))item.unique=null;
     }
     s.cooldowns=zeroCooldowns();s.effects={chill:0};s.tierKills={...fresh.tierKills,...data.tierKills};s.runNumber=Number.isInteger(data.runNumber)?data.runNumber:0;
@@ -901,6 +942,6 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
       if(!restored){startExpedition(s);s.returnPortal=false;}
     }
     s.hp=Math.min(s.hp,stats(s).maxHp);s.mana=Math.min(s.mana,stats(s).maxMana);s.potion.charges=Math.min(s.potion.charges,stats(s).potionCharges);
-    return {state:s,offline:offlineRewards(s,now),migrated,mapRecovered:!migrated&&!restored};
+    return {state:s,offline:offlineRewards(s,now),migrated,refunded:data.version<5&&s.level>1,mapRecovered:!migrated&&!restored};
   }catch{return {state:createGame(now),offline:null,recovered:true};}
 }

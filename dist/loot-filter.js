@@ -8,7 +8,8 @@ export function normalizeLootFilter(value={}) {
     slots:Array.isArray(value.slots)?[...new Set(value.slots.flatMap(s=>s==='armor'?['head','shoulder','chest','belt','leg','foot']:s==='weapon'?['hand','wrist']:s==='charm'?['neck']:[s]).filter(s=>GEAR_SLOTS.includes(s)))]:GEAR_SLOTS,
     minItemLevel:Number.isSafeInteger(value.minItemLevel)?Math.max(1,value.minItemLevel):1,
     affixes:Array.isArray(value.affixes)?[...new Set(value.affixes.filter(id=>AFFIXES[id]))]:[],
-    alwaysShowUnique:value.alwaysShowUnique!==false
+    alwaysShowUnique:value.alwaysShowUnique!==false,
+    keepUpgrades:value.keepUpgrades!==false
   };
 }
 
@@ -24,5 +25,5 @@ export function lootFilterSummary(filter) {
   const f=filter||normalizeLootFilter();
   const custom=f.slots.length!==GEAR_SLOTS.length||f.minItemLevel>1||f.affixes.length>0;
   const restricted=f.minRarity>0||custom||!f.alwaysShowUnique;
-  return `${f.minRarity===0?'All rarities':ITEM_RARITIES[f.minRarity]+'+'}${custom?' · custom rules':''}${restricted?' · non-matches → gold':''}`;
+  return `Keeping ${f.minRarity===0?'all rarities':ITEM_RARITIES[f.minRarity].toLowerCase()+' or better'}${custom?' · custom rules':''}${restricted?(f.keepUpgrades?' · plus upgrades':'')+' · the rest becomes gold':''}`;
 }

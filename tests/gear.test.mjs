@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {GEAR,GEAR_SLOTS,implicitStats,implicitMarkup} from '../dist/gear.js';
+import {GEAR,GEAR_SLOTS,BASES,baseOf,baseBonuses,implicitStats,implicitMarkup} from '../dist/gear.js';
 import {createGame,makeItem,stats,equip,saveGame,loadGame,SAVE_KEY,dropItem,collectLoot} from '../dist/engine.js';
 import {seededRandom} from '../dist/world.js';
 import {craft,benchCraft} from '../dist/crafting.js';
@@ -73,7 +73,7 @@ test('equipment and inventory panels expose accessible inspection and cleanup co
 
 test('rings fit either finger, contribute stats, craft and survive a save',()=>{
  const s=createGame(1000,42);s.auto=false;s.gold=10000;
- const left=makeItem('leftRing',0,10,()=>.5),right=makeItem('rightRing',3,10,()=>.5);
+ const left=makeItem('leftRing',0,10,()=>.5,'band'),right=makeItem('rightRing',3,10,()=>.5,'band');
  const base=stats(s);s.inventory=[left,right];
  assert(equip(s,left.id,'rightRing'));assert.equal(left.slot,'rightRing');
  assert(equip(s,right.id,'leftRing'));assert.equal(right.slot,'leftRing');
@@ -124,7 +124,8 @@ test('all eleven slots roll proportional implicits within 5%, regardless of rari
  const rng=seededRandom(42);
  for(const slot of GEAR_SLOTS)for(const level of [1,10,100,20001])for(let rarity=0;rarity<4;rarity++){
   const item=makeItem(slot,rarity,level,rng);
-  for(const [stat,rate] of Object.entries(GEAR[slot].rates)){
+  assert(BASES[slot].some(b=>b.id===item.base));assert.deepEqual(Object.keys(item.implicits),Object.keys(baseOf(item).rates));
+  for(const [stat,rate] of Object.entries(baseOf(item).rates)){
    assert(item.implicits[stat]>=Math.round(rate*level*.95*10)/10);
    assert(item.implicits[stat]<=Math.round(rate*level*1.05*10)/10);
   }
@@ -155,7 +156,7 @@ test('explicit crafting leaves the rolled base and upgrade rank unchanged',()=>{
  assert(craft(s,item,'alchemy',()=>.3).ok);
  assert(craft(s,item,'divine',()=>.9).ok);
  assert(craft(s,item,'scour').ok);
- item.rarity=1;assert(benchCraft(s,item,'swiftness',1,()=>.4).ok);
+ item.rarity=1;assert(benchCraft(s,item,'swiftness',4,()=>.4).ok);
  assert.deepEqual(item.implicits,original);assert.equal(item.upgrade,3);
 });
 

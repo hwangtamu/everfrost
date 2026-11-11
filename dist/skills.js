@@ -72,10 +72,16 @@ export const zeroCooldowns = () => Object.fromEntries(SKILLS.map(s => [s.id, 0])
 export const defaultSkills = () => ({ranks:{}, runes:{}, slots:['cleave','mend','storm','leap'], auto:Object.fromEntries(SKILLS.map(s => [s.id, true]))});
 
 // Rank 0 = locked. Rank 1 arrives with the unlock level; points add up to 9 more.
-export function skillRank(s, id) {
+export function baseRank(s, id) {
   const def = SKILL_BY_ID[id];
   if (!def || s.level < def.level) return 0;
   return 1 + Math.max(0, Math.min(MAX_SKILL_RANK-1, s.skills?.ranks?.[id] || 0));
+}
+// "+N to all skill ranks" on gear raises unlocked skills past their trained rank.
+export const gearRanks = s => Object.values(s.equipment || {}).reduce((n, item) => n + (item?.affixes || []).reduce((m, a) => m + (a.id === 'mastery' ? a.value : 0), 0), 0);
+export function skillRank(s, id) {
+  const rank = baseRank(s, id);
+  return rank ? rank + gearRanks(s) : 0;
 }
 export function activeRune(s, id) {
   const def = SKILL_BY_ID[id], runeId = s.skills?.runes?.[id];
@@ -102,7 +108,7 @@ export const skillDetail = (s, id, attackRange) => SKILL_BY_ID[id].detail(skillP
 
 export function investSkill(s, id) {
   const def = SKILL_BY_ID[id];
-  if (!def || s.skillPoints <= 0 || s.level < def.level || skillRank(s,id) >= MAX_SKILL_RANK) return false;
+  if (!def || s.skillPoints <= 0 || s.level < def.level || baseRank(s,id) >= MAX_SKILL_RANK) return false;
   s.skills.ranks[id] = (s.skills.ranks[id] || 0) + 1; s.skillPoints--;
   return true;
 }

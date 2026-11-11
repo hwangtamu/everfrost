@@ -16,8 +16,10 @@ arcane: {
 },
 ```
 
-- `T([minLevel, minVal, maxVal], ...)` builds tier rows ascending **weakest →
-  strongest**; display tier = `tiers.length - index` (T1 = best).
+- `T([minLevel, minVal, maxVal], ...)` builds the first five tier rows ascending
+  **weakest → strongest**; `deepen` appends three more at item levels 28/40/55
+  (`growth: 'flat' | 'percent' | 'slight'`, or `fixedTiers: true` to opt out).
+  Display tier = `tiers.length - index` (T1 = best).
 - `decimals: 1` for fractional values (reach/leech/regen).
 - Suffix names use the "of …" convention (`of Haste`); prefixes use plain
   names (`Forceful`); `makeItem` places them accordingly.
@@ -31,9 +33,8 @@ arcane: {
    ```js
    arcane: a.arcane,  // then fold into averageHit/dps if it should deal damage
    ```
-3. `combat-ui.js::equipmentChanges` — add a `[label, key]` pair so item
-   inspections compare it.
-4. `expedition-ui.js::modDictionary` updates automatically.
+3. If it is a utility stat that damage/toughness comparisons cannot show,
+   add it to `UTILITY` in `panels.js` so item details list the change.
 
 ## Add a monster modifier
 

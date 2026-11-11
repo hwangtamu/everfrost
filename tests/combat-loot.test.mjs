@@ -91,7 +91,7 @@ test('loot filter combines rarity, slot, level, and any selected modifier with a
 
 test('drops stay on the ground before pickup; hidden drops convert to gold, visible ones are kept',()=>{
   const s=scene(),item=makeItem('hand',0),count=s.inventory.length,gold=s.gold;
-  s.lootFilter=normalizeLootFilter({minRarity:2});dropItem(s,item,s.player);
+  s.lootFilter=normalizeLootFilter({minRarity:2,keepUpgrades:false});dropItem(s,item,s.player);
   assert.equal(s.groundLoot.length,1);assert.equal(s.inventory.length,count);
   advance(s,1);assert.equal(s.groundLoot.length,1);
   advance(s,1.5);assert.equal(s.groundLoot.length,0);

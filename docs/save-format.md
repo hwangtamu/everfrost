@@ -174,6 +174,16 @@ Existing v1–v3 saves migrate to location expedition with an empty keystone pou
 
 The suspended world includes stage, map, monsters, position, health, cooldowns, combat timers, hazards, ground drops, and auto setting, but does not roll back gold, experience, equipment, or other permanent rewards. Arena validation checks the fixed collision map, wave bounds and boss state. Corrupt rifts close with no renewed entry while restoring the normal expedition when valid. Pouch, portal and ground-drop IDs are deduplicated during load.
 
+## Gear additions (still version 5)
+
+- Items may carry `base` (a `BASES[slot]` id; unknown ids are dropped and the
+  slot's first base is assumed) and `locked: true`.
+- Affix `tier` numbers are recomputed on load from the stored `min`/`max`
+  (`loot.js::retier`), so ranges saved when families had five tiers map to the
+  right row of the longer lists.
+- `lootFilter.keepUpgrades` and `settings.autoEquip` default to `true` and
+  `false`.
+
 ## Builds (version 5)
 
 Version 5 replaced the four masteries with the passive tree and skill ranks.
