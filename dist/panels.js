@@ -1,7 +1,7 @@
 // Panel markup for the slide-over sheets and dialogs. Everything here is a pure
 // function of game state (plus a small `ui` view-state object) returning HTML,
 // so it can be rendered in the browser and exercised in Node tests alike.
-import {REGIONS,QUESTS,stats,combatStats,enemyStats,region,journey,xpRequired,salvageGold,upgradeCost,skillRange,POTION_KILLS,compareItem,bestComparison,isUpgrade,gambleCost} from './engine.js';
+import {REGIONS,QUESTS,stats,combatStats,enemyStats,region,journey,xpRequired,salvageGold,upgradeCost,skillRange,POTION_KILLS,compareItem,bestComparison,isUpgrade,gambleCost,stageThreat,riftThreat,guardianTraits,THREATS,FARM_CLEARS} from './engine.js';
 import {GEAR,GEAR_SLOTS,RING_SLOTS,STAT_LABELS,BASES,baseOf,bonusLines,implicitStats} from './gear.js';
 import {AFFIXES,UNIQUE_EFFECTS,ITEM_RARITIES,AFFIX_LIMIT,affixText,affixSlots,tierOf} from './loot.js';
 import {ENEMY_TIERS,MODIFIERS} from './monsters.js';
@@ -219,32 +219,73 @@ export function forgePanel(s, ui) {
 }
 
 // ---------- World: map, rifts, quests ----------
-export function keystoneDetail(key) {
+const threatTag = t => `<span class="threat t${t.level}">${t.label}</span>`;
+export const clock = seconds => `${Math.floor(seconds/60)}:${String(Math.floor(seconds%60)).padStart(2,'0')}`;
+const sortedKeys = s => [...s.keystones].sort((a,b) => b.itemLevel - a.itemLevel || b.rarity - a.rarity);
+export function keystoneDetail(key, s) {
   const b = riftBonuses(key);
-  return `<div class="item-card r${key.rarity} compact"><div class="item-head"><span class="tile r${key.rarity} static">${icon('portal')}</span><div><h3>${esc(key.name)}</h3><small>Level ${key.itemLevel} rift · ${RIFT_WAVES} waves</small></div></div>${key.modifiers.length ? `<ul class="affixes">${key.modifiers.map(m => `<li><span>+${modifierValue(m)}% ${esc(RIFT_MODIFIERS[m.id].label)}</span><small>${esc(RIFT_MODIFIERS[m.id].name)}</small></li>`).join('')}</ul>` : ''}<p class="small">Rewards: item level ${key.itemLevel + b.itemLevel} · +${b.quantity}% quantity · +${b.rarity}% rarity</p></div>`;
+  return `<div class="item-card r${key.rarity} compact"><div class="item-head"><span class="tile r${key.rarity} static">${icon('portal')}</span><div><h3>${esc(key.name)}</h3><small>Level ${key.itemLevel} rift · ${RIFT_WAVES} waves${s ? ' · ' + threatTag(riftThreat(s, key)) : ''}</small></div></div>${key.modifiers.length ? `<ul class="affixes">${key.modifiers.map(m => `<li><span>+${modifierValue(m)}% ${esc(RIFT_MODIFIERS[m.id].label)}</span><small>${esc(RIFT_MODIFIERS[m.id].name)}</small></li>`).join('')}</ul>` : '<p class="muted small">No modifiers: a plain rift.</p>'}<p class="small rewards">${icon('gem')} Rewards: item level <b>${key.itemLevel + b.itemLevel}</b> · <b>+${b.quantity}%</b> quantity · <b>+${b.rarity}%</b> rarity</p></div>`;
+}
+// Shown before entering: what it is, what it costs, what happens to the expedition.
+export function riftConfirm(s, key) {
+  const t = riftThreat(s, key);
+  return `${keystoneDetail(key, s)}<ul class="plain-list"><li>${icon('skull')} One attempt. The keystone is consumed, and dying or leaving closes the rift.</li><li>${icon('compass')} Your stage ${s.stage} expedition is frozen and resumes when the rift ends.</li>${t.level >= 3 ? `<li class="warn">${icon('info')} Rated ${t.label.toLowerCase()} for your hero right now.</li>` : ''}</ul><div class="actions"><button class="btn" data-act="close">Not now</button><button class="btn primary" data-act="run-rift" data-arg="${esc(key.id)}">${icon('portal')} Enter rift</button></div>`;
+}
+export function riftSummary(s, r) {
+  const head = r.status === 'cleared' ? `<p>Vharos is slain. ${icon('trophy')}</p>` : r.status === 'failed' ? `<p>You fell on wave <b>${r.wave}</b> of ${RIFT_WAVES}. Everything picked up before that is yours.</p>` : `<p>You left on wave <b>${r.wave}</b> of ${RIFT_WAVES}.</p>`;
+  return `${head}<div class="reward-row"><div>${icon('clock')}<b>${clock(r.seconds)}</b><small>Time</small></div><div>${icon('coin')}<b>${fmt(r.gold)}</b><small>Gold</small></div><div>${icon('bag')}<b>${r.items.length}</b><small>Items</small></div><div>${icon('gem')}<b>${r.gems}</b><small>Gems</small></div></div>${r.items.length ? `<div class="grid loot-grid">${r.items.slice(0, 24).map(i => itemTile(i, {upgrade:isUpgrade(bestComparison(s, i))})).join('')}</div>` : '<p class="muted small center">No items made it into the bag.</p>'}<p class="muted small center">Back on stage ${s.stage}.</p><div class="actions">${s.keystones.length ? `<button class="btn" data-act="open-rifts">${icon('portal')} Rifts · ${s.keystones.length}</button>` : ''}<button class="btn primary" data-act="close">Continue</button></div>`;
+}
+function riftsTab(s, ui) {
+  const inRift = s.location === 'rift';
+  const now = inRift ? `<div class="forge-box current-run"><h4>${icon('portal')} In the rift</h4><div class="wave-pips">${Array.from({length:RIFT_WAVES}, (_, i) => `<i class="${i + 1 < s.rift.wave || s.map.completed ? 'done' : i + 1 === s.rift.wave ? 'now' : ''}">${i + 1 === RIFT_WAVES ? icon('skull') : i + 1}</i>`).join('')}</div>${keystoneDetail(s.rift.keystone, s)}<div class="actions"><button class="btn ${s.map.completed ? 'primary' : 'danger'}" data-act="leave-rift">${s.map.completed ? 'Return to the expedition' : 'Abandon rift'}</button></div></div>` : '';
+  const open = !inRift && s.riftPortal ? `<div class="forge-box current-run"><h4>${icon('portal')} A rift stands open</h4>${keystoneDetail(s.riftPortal, s)}<div class="actions"><button class="btn primary" data-act="run-rift">${icon('portal')} Enter rift</button></div></div>` : '';
+  const keys = s.keystones.length ? sortedKeys(s).slice(0, 30).map(k => { const b = riftBonuses(k); return `<div class="key-row r${k.rarity}"><button class="key-main" data-act="key-info" data-arg="${esc(k.id)}" aria-label="${esc(k.name)}, level ${k.itemLevel}, details"><span class="tile r${k.rarity} static">${icon('portal')}<span class="tile-level">${k.itemLevel}</span></span><span class="key-text"><b>${esc(k.name)}</b><small>${k.modifiers.length ? k.modifiers.map(m => esc(RIFT_MODIFIERS[m.id].name)).join(' · ') : 'No modifiers'}</small><small class="rewards">ilvl ${k.itemLevel + b.itemLevel} · +${b.quantity}% qty · +${b.rarity}% rarity</small></span></button>${threatTag(riftThreat(s, k))}<button class="btn small primary" data-act="enter-key" data-arg="${esc(k.id)}" ${inRift || s.riftPortal ? 'disabled' : ''}>Enter</button></div>`; }).join('') : '<p class="muted small center">No keystones yet. Cut one below, or find them on rare enemies and guardians.</p>';
+  const level = Math.max(1, Math.min(s.maxStage, ui.keyLevel ?? s.maxStage));
+  const short = name => name.replace('Orb of ','').replace(' Orb','');
+  const recipes = KEYSTONE_RECIPES.map(r => {
+    const can = !inRift && Object.entries(r.cost).every(([o,n]) => (s.orbs[o]||0) >= n), mods = ['no modifiers','1–2 modifiers','3–4 modifiers','6 modifiers'][r.rarity];
+    return `<button class="recipe r${r.rarity}" data-act="craft-key" data-arg="${r.rarity}" ${can ? '' : 'disabled'}><b>${r.label}</b><small>${mods}</small><span>${Object.entries(r.cost).map(([o,n]) => `<em class="${(s.orbs[o]||0) >= n ? '' : 'lack'}">${n} ${esc(short(CRAFT_OPERATIONS[o].name))} <i>(have ${s.orbs[o]||0})</i></em>`).join('')}</span></button>`;
+  }).join('');
+  const last = s.lastRift ? `<p class="muted small center">Last rift: ${s.lastRift.status}${s.lastRift.wave ? ` on wave ${s.lastRift.wave}` : ''}${s.riftsCleared ? ` · ${s.riftsCleared} conquered in all` : ''}.</p>` : '';
+  return `${now}${open}<h4>Keystones${s.keystones.length ? ` <small class="muted">${s.keystones.length}</small>` : ''}</h4>${keys}
+  <h4>Cut a keystone</h4><div class="forge-box"><div class="stepper"><span>Rift level</span><button class="btn small icon-only" data-act="key-level" data-arg="-5" aria-label="Five levels lower">−5</button><button class="btn small icon-only" data-act="key-level" data-arg="-1" aria-label="One level lower">${icon('minus')}</button><b>${level}</b><button class="btn small icon-only" data-act="key-level" data-arg="1" aria-label="One level higher">${icon('plus')}</button><button class="btn small" data-act="key-level" data-arg="max">Max</button>${threatTag(stageThreat(s, level, {life:20, damage:10}))}</div><div class="recipes">${recipes}</div></div>
+  <p class="muted small">A rift is ${RIFT_WAVES} waves in a small arena, ending in Vharos. Each modifier makes it deadlier and raises the item level, quantity and rarity of everything that drops. Your expedition waits while you are inside.</p>${last}`;
+}
+export function stageInfo(s, stage) {
+  const r = REGIONS[Math.floor(((stage-1)%20)/5)], traits = ['earthshatter','empowered',...guardianTraits(stage)], best = s.bestTimes?.[stage];
+  const gem = GEM_GRADES[stage < 8 ? 0 : stage < 18 ? 1 : stage < 32 ? 2 : stage < 50 ? 3 : 4];
+  return {region:r, traits, best, gem, threat:stageThreat(s, stage), locked:stage > s.maxStage};
+}
+function stagesTab(s, ui) {
+  const inRift = s.location === 'rift', onRun = s.location === 'expedition';
+  const maxCycle = Math.floor((s.maxStage-1)/20), cycle = Math.max(0, Math.min(maxCycle, ui.mapCycle ?? journey(s)-1)), first = cycle*20+1;
+  const picked = Number.isInteger(ui.mapStage) && ui.mapStage >= first && ui.mapStage < first + 20 ? ui.mapStage : (s.stage >= first && s.stage < first + 20 ? s.stage : Math.min(s.maxStage, first));
+  const left = s.enemies.filter(e => e.hp > 0 && !e.boss).length, boss = s.enemies.find(e => e.boss);
+  const state = !onRun ? '' : s.map.completed ? 'Cleared — moving on' : s.map.bossUnlocked ? `Guardian: ${esc(boss?.name || '')} · ${Math.ceil((boss?.hp || 0) / (boss?.maxHp || 1) * 100)}%` : `${left} enemies left · seal ${s.map.progress}/${s.map.goal}`;
+  const current = onRun ? `<div class="forge-box current-run"><div class="run-head"><div><b>Stage ${s.stage} · ${esc(region(s).name)}</b><small>${state} · ${clock(s.map.elapsed || 0)}</small></div>${threatTag(stageThreat(s, s.stage))}</div><div class="bar"><i style="width:${s.map.bossUnlocked ? 100 : s.map.goal ? s.map.progress / s.map.goal * 100 : 0}%"></i></div>
+  <div class="segmented" role="group" aria-label="After each guardian"><button class="${s.advance ? 'on' : ''}" data-act="set-advance" data-arg="1" aria-pressed="${s.advance}">${icon('forward')} Push<small>next stage after each guardian</small></button><button class="${s.advance ? '' : 'on'}" data-act="set-advance" data-arg="0" aria-pressed="${!s.advance}">${icon('loop')} Farm<small>replay this stage on fresh maps</small></button></div>
+  ${s.retreated && !s.advance ? `<p class="small warn">${icon('info')} Fell back after two deaths. Pushing resumes after ${FARM_CLEARS - s.farmClears} more clean clear${FARM_CLEARS - s.farmClears === 1 ? '' : 's'}.</p>` : ''}</div>` : inRift ? `<div class="forge-box"><p class="muted">You are inside a rift. Stage travel is available again when it ends.</p></div>` : '';
+  const regions = REGIONS.map(r => {
+    const start = cycle*20 + r.start;
+    return `<section class="region" style="--c:${r.color}"><div><b>${r.name}</b><small>${esc(r.boss)}</small></div><div class="stages">${Array.from({length:5}, (_,i) => start+i).map(stage => { const locked = stage > s.maxStage; return `<button class="${s.stage===stage&&!inRift?'current':''} ${stage<s.maxStage?'done':''} ${picked===stage?'picked':''} ${locked ? '' : 't' + stageThreat(s, stage).level}" data-act="pick-stage" data-arg="${stage}" ${locked ? 'disabled' : ''} aria-label="Stage ${stage}" aria-pressed="${picked===stage}">${locked ? icon('lock') : stage}</button>`; }).join('')}</div></section>`;
+  }).join('');
+  const info = stageInfo(s, picked), here = picked === s.stage && onRun;
+  const detail = `<div class="forge-box stage-detail" style="--c:${info.region.color}"><div class="run-head"><div><b>Stage ${picked} · ${esc(info.region.name)}</b><small>Journey ${Math.floor((picked-1)/20)+1} · enemy and item level ${picked}</small></div>${threatTag(info.threat)}</div>
+  <ul class="plain-list"><li>${icon('skull')} <span><b>${esc(info.region.boss)}</b> — ${info.traits.map(t => esc(MODIFIERS[t].name)).join(', ')}</span></li><li>${icon('gem')} <span>Gems up to ${info.gem.toLowerCase()} · ${picked >= 13 ? 'all modifier families' : 'no “all skill ranks” modifier yet'}</span></li><li>${icon('clock')} <span>${info.best ? `Best clear ${clock(info.best)}` : 'Not cleared yet'}</span></li></ul>
+  <div class="actions"><button class="btn primary" data-act="travel" data-arg="${picked}" ${here || inRift || info.locked ? 'disabled' : ''}>${icon('compass')} ${here ? 'You are here' : `Travel to stage ${picked}`}</button>${here ? `<button class="btn" data-act="reroll">${icon('loop')} New map</button>` : ''}</div></div>`;
+  return `${current}<div class="pager"><button class="btn small icon-only" data-act="map-cycle" data-arg="${cycle-1}" ${cycle===0?'disabled':''} aria-label="Previous journey">${icon('chevron','flip')}</button><div><b>Journey ${cycle+1}</b><small>Stages ${first}–${first+19} · highest ${s.maxStage}</small></div><button class="btn small icon-only" data-act="map-cycle" data-arg="${cycle+1}" ${cycle>=maxCycle?'disabled':''} aria-label="Next journey">${icon('chevron')}</button></div>
+  ${regions}<p class="legend">${THREATS.map((name, i) => `<span class="threat t${i}">${name}</span>`).join('')}</p>${detail}
+  ${s.stage !== s.maxStage && !inRift ? `<div class="actions"><button class="btn" data-act="travel" data-arg="${s.maxStage}">${icon('forward')} Jump to your highest stage (${s.maxStage})</button></div>` : ''}`;
 }
 export function worldPanel(s, ui) {
-  const tab = ui.worldTab, inTown = s.location === 'village', inRift = s.location === 'rift';
+  const tab = ui.worldTab;
   const tabs = `<div class="tabs sub">${[['map','Stages'],['rifts',`Rifts${s.keystones.length ? ` · ${s.keystones.length}` : ''}`],['quests',`Quests${claimable(s) ? ' ●' : ''}`]].map(([id,name]) => `<button class="${tab===id?'on':''}" data-act="world-tab" data-arg="${id}">${name}</button>`).join('')}</div>`;
-  if (tab === 'quests') return tabs + questList(s);
-  if (tab === 'rifts') {
-    const state = inRift ? `<div class="forge-box"><h4>${icon('portal')} Inside a rift</h4><p>Wave ${s.rift.wave} of ${RIFT_WAVES}${s.map.completed ? ' · cleared' : ''}. Leaving or dying closes it for good.</p>${keystoneDetail(s.rift.keystone)}<div class="actions"><button class="btn ${s.map.completed?'primary':'danger'}" data-act="village">${s.map.completed ? 'Return to Village' : 'Abandon rift'}</button></div></div>`
-      : !inTown ? `<div class="forge-box"><h4>${icon('tree')} The Village</h4><p>Keystones are cut and rifts are opened in the Village. Your expedition waits exactly as you left it.</p><div class="actions"><button class="btn primary" data-act="village">${icon('portal')} Town portal</button></div></div>`
-      : `<div class="forge-box"><h4>${icon('tree')} In the Village</h4><p>${s.returnPortal ? `Your stage ${s.stage} expedition is waiting.` : 'No expedition is waiting.'}</p><div class="actions">${s.returnPortal ? `<button class="btn primary" data-act="resume">${icon('play')} Resume expedition</button>` : ''}<button class="btn" data-act="new-run">${icon('compass')} New run · stage ${s.maxStage}</button>${s.riftPortal ? `<button class="btn primary" data-act="enter-rift">${icon('portal')} Enter rift</button>` : ''}</div>${s.riftPortal ? keystoneDetail(s.riftPortal) : ''}</div>`;
-    const last = s.lastRift ? `<p class="muted small center">Last rift: ${s.lastRift.status}${s.lastRift.wave ? ` on wave ${s.lastRift.wave}` : ''}.</p>` : '';
-    const keys = s.keystones.length ? s.keystones.slice(0, 24).map(k => `<div class="key-row r${k.rarity}"><span class="tile r${k.rarity} static">${icon('portal')}</span><div><b>${esc(k.name)}</b><small>Level ${k.itemLevel} · ${k.modifiers.length ? k.modifiers.map(m => RIFT_MODIFIERS[m.id].name).join(', ') : 'no modifiers'}</small></div><button class="btn small" data-act="key-info" data-arg="${esc(k.id)}">Info</button><button class="btn small primary" data-act="open-rift" data-arg="${esc(k.id)}" ${inTown && !s.riftPortal ? '' : 'disabled'}>Open</button></div>`).join('') : '<p class="muted small center">No keystones. Guardians and rare enemies sometimes drop them.</p>';
-    const total = Object.values(s.orbs).reduce((a,b) => a+b, 0);
-    const recipes = KEYSTONE_RECIPES.map(r => { const can = inTown && Object.entries(r.cost).every(([o,n]) => (s.orbs[o]||0) >= n); return `<button class="btn small r${r.rarity}" data-act="craft-key" data-arg="${r.rarity}" ${can ? '' : 'disabled'}><b>${r.label}</b> ${Object.entries(r.cost).map(([o,n]) => `${n} ${esc(CRAFT_OPERATIONS[o].name.replace('Orb of ','').replace(' Orb',''))}`).join(' + ')}</button>`; }).join('');
-    return `${tabs}${state}${last}<h4>Keystones</h4>${keys}<h4>Cut a keystone <small class="muted">${total} orbs held</small></h4><div class="actions wrap">${recipes}</div><p class="muted small">A rift is ${RIFT_WAVES} waves ending in Vharos. Modifiers make it deadlier and raise item level, quantity and rarity. Level: <input id="key-level" type="number" min="1" max="${s.maxStage}" value="${s.maxStage}" aria-label="Keystone level"></p>`;
-  }
-  const maxCycle = Math.floor((s.maxStage-1)/20), cycle = Math.max(0, Math.min(maxCycle, ui.mapCycle ?? journey(s)-1)), first = cycle*20+1;
-  const regions = REGIONS.map((r, index) => {
-    const start = cycle*20 + r.start;
-    return `<section class="region" style="--c:${r.color}"><div><b>${r.name}</b><small>${esc(r.boss)}</small></div><div class="stages">${Array.from({length:5}, (_,i) => start+i).map(stage => `<button class="${s.stage===stage&&!inRift?'current':''} ${stage<s.maxStage?'done':''}" data-act="travel" data-arg="${stage}" ${stage > s.maxStage || inRift ? 'disabled' : ''} aria-label="Stage ${stage}">${stage > s.maxStage ? icon('lock') : stage}</button>`).join('')}</div></section>`;
-  }).join('');
-  return `${tabs}<div class="mode-row"><label class="toggle"><input type="checkbox" data-change="advance" ${s.advance ? 'checked' : ''} ${s.location==='expedition'?'':'disabled'}><span></span>Auto-advance to the next stage</label><small class="muted">${s.advance ? 'Pushing forward after every guardian.' : 'Farming this stage on fresh maps.'}</small></div>
-  <div class="pager"><button class="btn small icon-only" data-act="map-cycle" data-arg="${cycle-1}" ${cycle===0?'disabled':''} aria-label="Previous journey">${icon('chevron','flip')}</button><div><b>Journey ${cycle+1}</b><small>Stages ${first}–${first+19} · highest ${s.maxStage}</small></div><button class="btn small icon-only" data-act="map-cycle" data-arg="${cycle+1}" ${cycle>=maxCycle?'disabled':''} aria-label="Next journey">${icon('chevron')}</button></div>
-  ${regions}<div class="actions"><button class="btn" data-act="reroll" ${s.location==='expedition'?'':'disabled'}>${icon('loop')} New map of stage ${s.stage}</button><button class="btn" data-act="travel" data-arg="${s.maxStage}" ${s.stage===s.maxStage||inRift?'disabled':''}>${icon('forward')} Go to stage ${s.maxStage}</button></div>`;
+  return tabs + (tab === 'quests' ? questList(s) : tab === 'rifts' ? riftsTab(s, ui) : stagesTab(s, ui));
+}
+// The full map dialog: legend, live counts, and tap to walk there.
+export function mapDialog(s) {
+  const left = s.enemies.filter(e => e.hp > 0 && !e.boss).length, dot = (color, label) => `<span><i style="background:${color}"></i>${label}</span>`;
+  return `<canvas id="big-map" width="640" height="480" class="big-map" aria-label="Map. Tap to walk there."></canvas><p class="map-legend">${dot('#fff2bd','You')}${dot(ENEMY_TIERS.normal.color,'Pack')}${dot(ENEMY_TIERS.magic.color,'Magic')}${dot(ENEMY_TIERS.rare.color,'Rare')}${dot(ENEMY_TIERS.unique.color,'Guardian')}${dot('#82dcb4','Shrine')}${dot('#d8c189','Cache')}${dot('#a9c7a5','Camp')}</p><p class="muted small center" id="map-status">${s.location === 'rift' ? `Rift wave ${s.rift.wave} of ${RIFT_WAVES} · ${left} left` : `${left} enemies left · seal ${s.map.progress}/${s.map.goal} · tap the map to walk there`}</p>`;
 }
 export const claimable = s => QUESTS.filter(q => !s.claimed.includes(q.id) && q.value(s) >= q.target).length;
 function questList(s) {
@@ -287,7 +328,8 @@ export const HELP = [
   ['nodes','Build your hero','Every level gives a passive point for the tree and a skill point for skill ranks. Rank 4 unlocks a rune that reshapes a skill. Keystones at the end of each path trade one strength for another.'],
   ['hammer','Forge','Temper equipped gear with gold, use orbs to reroll or add modifiers, pick an exact modifier at the bench, set gems into sockets, or gamble for new pieces.'],
   ['gem','Sets and gems','Green set pieces grow stronger together: wear two, three or four of a set for its bonuses. Gems drop from tougher enemies; three of a kind combine into a better one.'],
-  ['portal','Rifts','Cut keystones from orbs in the Village and open a rift: five waves and a boss for higher-level, richer loot. One entry — death closes it.'],
+  ['portal','Rifts','In World → Rifts, cut keystones from orbs and enter with one tap: five waves and a boss for higher-level, richer loot. One attempt each; your expedition waits and resumes afterwards.'],
+  ['map','Stages','World → Stages rates every stage for your hero, from trivial to deadly. Push to advance after each guardian, or Farm to replay a stage. After a forced retreat the hero pushes again on their own once three clears go cleanly.'],
   ['clock','Away','With the fight running you earn gold, experience and orbs for up to 8 hours while the game is closed.']
 ];
 export const helpContent = () => `<div class="help">${HELP.map(([i,t,p]) => `<div>${icon(i)}<section><h4>${t}</h4><p>${p}</p></section></div>`).join('')}</div><div class="actions"><button class="btn primary" data-act="close">Got it</button></div>`;

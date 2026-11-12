@@ -1,6 +1,6 @@
 // Browser shell: full-screen battlefield, HUD, slide-over panels, input,
 // persistence and cloud sync. Game rules live in engine.js; panel markup in panels.js.
-import {SAVE_KEY,SKILLS,stats,combatStats,region,journey,xpRequired,tick,useSkill,usePotion,equip,salvage,salvageGold,upgrade,upgradeCost,merge,travel,claimQuest,loadGame,saveGame,createGame,offlineRewards,startExpedition,movePlayer,collectLoot,teleportVillage,resumeExpedition,startVillageStage,craftKeystone,openRiftPortal,enterRift,POTION_KILLS,toggleLock,gamble,equipUpgrades} from './engine.js';
+import {SAVE_KEY,SKILLS,stats,combatStats,region,journey,xpRequired,tick,useSkill,usePotion,equip,salvage,salvageGold,upgrade,upgradeCost,merge,travel,claimQuest,loadGame,saveGame,createGame,offlineRewards,startExpedition,movePlayer,collectLoot,teleportVillage,resumeExpedition,startVillageStage,craftKeystone,openRiftPortal,enterRift,POTION_KILLS,toggleLock,gamble,equipUpgrades,runRift,returnToExpedition,cutKeystone} from './engine.js';
 import {SKILL_BY_ID,skillRank,skillParams,investSkill,chooseRune,slotSkill,resetSkills} from './skills.js';
 import {allocate,respec,respecCost,TREE_BY_ID,TREE_EXTENT} from './tree.js';
 import {GEAR,RING_SLOTS} from './gear.js';
@@ -14,6 +14,7 @@ import {CloudSaves,restorePayload} from './cloud-saves.js';
 import {connectAccount} from './firebase.js';
 import {icon} from './icons.js';
 import {Battlefield,drawMinimap} from './renderer.js';
+import {riftConfirm,riftSummary,mapDialog,clock} from './panels.js';
 import {esc,fmt,heroPanel,bagPanel,skillsPanel,treePanel,forgePanel,worldPanel,itemDetail,keystoneDetail,enemyDossier,lootFilterForm,offlineSummary,helpContent,forgeTarget,salvageCandidates,bestComparison,isUpgrade,upgradeCount,claimable} from './panels.js';
 
 const loaded = loadGame();
@@ -102,6 +103,9 @@ function updateHud() {
     setHtml('target-mods', e.modifiers.map(m => `<span>${esc(MODIFIERS[m].name)}</span>`).join(''));
     $('target').classList.toggle('boss', e.boss);
   }
+  const left = state.enemies.filter(x => x.hp > 0 && !x.boss).length;
+  setText('left-label', inTown ? '' : map.completed ? 'Cleared' : map.bossUnlocked ? 'Guardian' : `${left} left`);
+  $('left-label').hidden = inTown; $('left-label').classList.toggle('boss', !!map.bossUnlocked && !map.completed); $('left-label').classList.toggle('solo', state.location !== 'expedition');
   // Skills
   renderSkillbar();
   state.skills.slots.forEach((id, i) => {
@@ -120,8 +124,8 @@ function updateHud() {
   badge('dock-tree', state.points > 0 ? String(state.points) : '');
   badge('dock-world', claimable(state) ? '!' : state.keystones.length && !inRift ? String(state.keystones.length) : '');
   // Overlay
-  const overlay = inTown ? `<div class="overlay-card"><h3>${icon('tree')} The Village</h3><p>Safe ground. ${state.returnPortal ? `Your stage ${state.stage} expedition is waiting.` : ''}</p><div class="actions wrap">${state.returnPortal ? `<button class="btn primary" data-act="resume">${icon('play')} Resume</button>` : `<button class="btn primary" data-act="new-run">${icon('compass')} Set out</button>`}${state.riftPortal ? `<button class="btn primary" data-act="enter-rift">${icon('portal')} Enter rift</button>` : ''}<button class="btn" data-act="open-rifts">${icon('portal')} Rifts</button></div></div>`
-    : inRift && map.completed ? `<div class="overlay-card"><h3>${icon('trophy')} Rift conquered</h3><p>Your spoils are collected.</p><div class="actions"><button class="btn primary" data-act="village">Return to Village</button></div></div>`
+  const overlay = inTown ? `<div class="overlay-card"><h3>${icon('tree')} The Village</h3><p>Safe ground.${state.returnPortal ? ` Your stage ${state.stage} expedition is waiting.` : ''}</p><div class="actions wrap"><button class="btn primary" data-act="back-to-run">${icon('play')} ${state.returnPortal ? 'Resume expedition' : 'Set out'}</button>${state.riftPortal ? `<button class="btn primary" data-act="run-rift">${icon('portal')} Enter rift</button>` : ''}</div></div>`
+    : inRift && map.completed ? `<div class="overlay-card"><h3>${icon('trophy')} Rift conquered</h3><p>Gathering the spoils…</p><div class="actions"><button class="btn primary" data-act="leave-rift">Return now</button></div></div>`
     : !state.auto ? `<div class="overlay-card slim"><h3>${icon('pause')} Paused</h3><div class="actions"><button class="btn primary" data-act="pause">${icon('play')} Resume</button></div></div>` : '';
   setHtml('overlay', overlay); $('overlay').hidden = !overlay;
 }
@@ -193,8 +197,10 @@ function processEvents(events) {
       case 'death': banner('You fell', 'Recovering at camp', 'dead'); sound(90, .6, 'sawtooth'); break;
       case 'retreat': toast(`Fell back to stage ${e.stage}. Auto-advance is off until you are stronger.`); break;
       case 'riftWave': banner(e.wave === RIFT_WAVES ? 'Vharos arrives' : `Rift wave ${e.wave}`, '', e.wave === RIFT_WAVES ? 'boss' : ''); persist(); break;
-      case 'riftComplete': banner('Rift conquered', 'Return to the Village', 'gold'); persist(); refreshSheet(); break;
-      case 'riftFailed': banner('The rift closes', 'You fell inside', 'dead'); persist(); refreshSheet(); break;
+      case 'riftComplete': banner('Rift conquered', 'Gathering the spoils', 'gold'); sound(880, .5); persist(); refreshSheet(); setTimeout(() => { if (state.location === 'rift' && state.map.completed) endRift('cleared'); }, 3600 / state.speed); break;
+      case 'riftFailed': banner('The rift closes', 'You fell inside', 'dead'); endRift('failed'); break;
+      case 'clearTime': if (e.best && e.seconds > 0) feed(`${icon('clock')} Stage ${e.stage} best: ${clock(e.seconds)}`); break;
+      case 'push': toast(`Strong enough again — pushing on to stage ${e.stage}.`, 'gold'); refreshSheet(); break;
       case 'chest': feed(`${icon('gem')} Hidden cache opened`); break;
       case 'newMap': skillbarKey = ''; refreshSheet(); break;
     }
@@ -277,11 +283,11 @@ function act(name, b) {
     case 'confirm': { const fn = pendingConfirm; pendingConfirm = null; closeModal(); fn?.(); break; }
     case 'pause': if (state.location !== 'village') state.auto = !state.auto; break;
     case 'speed': state.speed = state.speed === 1 ? 2 : 1; break;
-    case 'toggle-advance': state.advance = !state.advance; toast(state.advance ? 'Auto-advance on: pushing to the next stage.' : 'Farming: replaying this stage on fresh maps.'); break;
+    case 'toggle-advance': state.advance = !state.advance; state.retreated = false; toast(state.advance ? 'Auto-advance on: pushing to the next stage.' : 'Farming: replaying this stage on fresh maps.'); break;
     case 'cast': { const events = useSkill(state, arg); if (events.length) processEvents(events); else { const def = SKILL_BY_ID[arg]; if (state.level >= def.level && !(state.cooldowns[arg] > 0)) toast(state.mana < skillParams(state, arg).mana && !stats(state).bloodMagic ? 'Not enough mana.' : 'No target in range.'); } changed = false; break; }
     case 'potion': { const events = []; if (usePotion(state, events)) processEvents(events); else toast(state.potion.charges ? 'Already at full health.' : 'No charges — kills refill your potion.'); changed = false; break; }
     case 'dossier': modal('Target', enemyDossier(state)); changed = false; break;
-    case 'big-map': modal(state.map.name || 'Map', `<canvas id="big-map" width="640" height="480" class="big-map"></canvas><p class="muted small center">${state.location === 'rift' ? 'Rift arena' : `Seal ${state.map.progress} / ${state.map.goal} · tap the battlefield to move`}</p>`); drawMinimap($('big-map'), state, true); changed = false; break;
+    case 'big-map': if (state.location !== 'village') { modal(state.location === 'rift' ? 'Rift arena' : `${state.map.name} · stage ${state.stage}`, mapDialog(state)); drawMinimap($('big-map'), state, true); } changed = false; break;
     case 'item': inspect(arg, false); changed = false; break;
     case 'equipped': inspect(arg, true); changed = false; break;
     case 'empty-slot': ui.bagFilter = RING_SLOTS.includes(arg) ? 'rings' : arg; ui.sheet === 'bag' ? renderSheet() : openSheet('bag'); changed = false; break;
@@ -326,21 +332,28 @@ function act(name, b) {
     case 'respec': confirmModal('Respec passives?', `Refund all ${state.tree.length} passive points for <b>${fmt(respecCost(state))} gold</b>.`, 'Respec', () => { if (respec(state)) toast('Passive points refunded.'); else toast('Not enough gold.'); after(); }); changed = false; break;
     case 'world-tab': ui.worldTab = arg; break;
     case 'map-cycle': ui.mapCycle = Number(arg); break;
-    case 'travel': if (travel(state, Number(arg))) { toast(`Stage ${state.stage} · ${region(state).name}`); ui.mapCycle = null; state.auto = true; } break;
+    case 'travel': if (travel(state, Number(arg))) { toast(`Stage ${state.stage} · ${region(state).name}`); ui.mapCycle = null; ui.mapStage = null; state.auto = true; state.retreated = false; } break;
+    case 'pick-stage': ui.mapStage = Number(arg); break;
+    case 'set-advance': state.advance = arg === '1'; state.retreated = false; break;
+    case 'key-level': ui.keyLevel = arg === 'max' ? state.maxStage : Math.max(1, Math.min(state.maxStage, (ui.keyLevel ?? state.maxStage) + Number(arg))); break;
     case 'reroll': if (state.location === 'expedition') { startExpedition(state); toast('A fresh map.'); } break;
     case 'claim': if (claimQuest(state, arg)) { toast('Reward claimed.', 'gold'); sound(660); } break;
-    case 'village': {
-      const go = () => { teleportVillage(state); ui.worldTab = 'rifts'; if (ui.sheet !== 'world') openSheet('world'); after(); };
-      if (state.location === 'rift' && !state.map.completed) { confirmModal('Abandon the rift?', 'Leaving closes this rift for good. Loot on the ground is collected.', 'Leave', go); changed = false; } else { go(); changed = false; }
+    case 'open-rifts': closeModal(); ui.worldTab = 'rifts'; if (ui.sheet !== 'world') openSheet('world'); break;
+    case 'back-to-run': returnToExpedition(state); closeSheet(); break;
+    case 'key-info': { const key = state.keystones.find(k => k.id === arg); if (key) modal('Keystone', keystoneDetail(key, state) + `<div class="actions"><button class="btn primary" data-act="enter-key" data-arg="${esc(key.id)}" ${state.location === 'rift' || state.riftPortal ? 'disabled' : ''}>${icon('portal')} Enter</button></div>`); changed = false; break; }
+    case 'enter-key': { const key = state.keystones.find(k => k.id === arg); if (key) modal('Enter this rift?', riftConfirm(state, key)); changed = false; break; }
+    case 'run-rift': {
+      const before = {gold:state.gold, ids:new Set(state.inventory.map(i => i.id)), gems:gemTotal(), time:state.playTime};
+      if (runRift(state, arg)) { riftRun = before; closeModal(); closeSheet(); banner('Into the rift', `Level ${state.rift.keystone.itemLevel}`, 'boss'); sound(180, .5, 'sawtooth'); } else toast('That rift cannot be opened right now.');
       break;
     }
-    case 'open-rifts': ui.worldTab = 'rifts'; if (ui.sheet !== 'world') openSheet('world'); break;
-    case 'resume': resumeExpedition(state); closeSheet(); break;
-    case 'new-run': if (startVillageStage(state, state.maxStage)) closeSheet(); break;
-    case 'enter-rift': if (enterRift(state)) { closeSheet(); toast('The portal closes behind you.'); } break;
-    case 'open-rift': if (openRiftPortal(state, arg)) toast('Rift portal opened. One entry.', 'gold'); break;
-    case 'key-info': { const key = state.keystones.find(k => k.id === arg); if (key) modal('Keystone', keystoneDetail(key)); changed = false; break; }
-    case 'craft-key': { const input = $('key-level'), level = Math.max(1, Math.min(state.maxStage, Math.floor(Number(input?.value) || state.maxStage))); const r = craftKeystone(state, Number(arg), Math.random, level); toast(r.ok ? `${r.item.name} cut.` : r.reason, r.ok ? 'gold' : 'info'); break; }
+    case 'leave-rift': {
+      if (state.location !== 'rift') break;
+      if (state.map.completed) { endRift('cleared'); changed = false; }
+      else { confirmModal('Abandon the rift?', 'Leaving closes this rift for good. What you have picked up so far is kept, and your expedition resumes.', 'Abandon', () => endRift('abandoned')); changed = false; }
+      break;
+    }
+    case 'craft-key': { const level = Math.max(1, Math.min(state.maxStage, ui.keyLevel ?? state.maxStage)); const r = cutKeystone(state, Number(arg), level); if (r.ok) sound(700, .2); toast(r.ok ? `${r.item.name} cut at level ${level}.` : r.reason, r.ok ? 'gold' : 'info'); break; }
     case 'rename': modal('Name your hero', `<form id="rename-form"><label class="field">Hero name<input id="hero-name" value="${esc(state.name)}" maxlength="20" required autocomplete="off"></label><div class="actions"><button class="btn primary" type="submit">Save</button></div></form>`); changed = false; break;
     case 'help': modal('How to play', helpContent()); changed = false; break;
     case 'log': modal('Battle log', `<ul class="log">${state.log.map(l => `<li class="${l.type}">${esc(l.text)}</li>`).join('')}</ul>`); changed = false; break;
@@ -354,6 +367,16 @@ function act(name, b) {
     default: changed = false;
   }
   if (changed) after();
+}
+// Rift bookkeeping for the end-of-run summary; it lives only for this visit.
+let riftRun = null;
+const gemTotal = () => Object.values(state.gems || {}).reduce((a, b) => a + b, 0);
+function endRift(status) {
+  const wave = state.rift?.wave || state.lastRift?.wave || 0, run = riftRun; riftRun = null;
+  returnToExpedition(state); skillbarKey = '';
+  if (run) modal(status === 'cleared' ? 'Rift conquered' : status === 'failed' ? 'The rift closed' : 'Rift abandoned', riftSummary(state, {status, wave, seconds:Math.max(0, state.playTime - run.time), gold:Math.max(0, state.gold - run.gold), gems:Math.max(0, gemTotal() - run.gems), items:state.inventory.filter(i => !run.ids.has(i.id))}));
+  else toast(status === 'cleared' ? 'Rift conquered. Back on the expedition.' : 'Back on the expedition.');
+  after();
 }
 const currentForgeItem = () => forgeTarget(state, ui.forgeItem) || Object.values(state.equipment).find(Boolean) || state.inventory[0];
 function after() { updateHud(); renderSheet(); persist(); }
@@ -371,7 +394,6 @@ document.addEventListener('change', e => {
   else if (t.id === 'bench-affix') { ui.benchAffix = t.value; ui.benchTier = null; renderSheet(); }
   else if (t.id === 'bench-tier') { ui.benchTier = Number(t.value); renderSheet(); }
   else if (kind === 'auto-skill') { state.skills.auto[t.dataset.arg] = t.checked; skillbarKey = ''; persist(); }
-  else if (kind === 'advance') { state.advance = t.checked; after(); }
   else if (kind === 'set-sound') { state.settings.sound = t.checked; sound(); persist(); }
   else if (kind === 'set-motion') { state.settings.motion = t.checked; persist(); }
   else if (kind === 'set-potion') { state.settings.autoPotion = t.checked; persist(); }
@@ -396,7 +418,15 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape' && ui.sheet) closeSheet();
   else { const key = {c:'hero', i:'bag', b:'bag', s:'skills', p:'tree', t:'tree', f:'forge', m:'world', w:'world'}[e.key.toLowerCase()]; if (key && !e.ctrlKey && !e.metaKey && !e.altKey) openSheet(key); }
 });
-$('dialog').addEventListener('click', e => { if (e.target === $('dialog')) closeModal(); });
+$('dialog').addEventListener('click', e => {
+  if (e.target === $('dialog')) return closeModal();
+  if (e.target.id !== 'big-map' || state.location === 'village') return;
+  // Same geometry as drawMinimap: the map is centred with an 8px margin.
+  const c = e.target, r = c.getBoundingClientRect(), map = state.map, x = (e.clientX - r.left) / r.width * c.width, y = (e.clientY - r.top) / r.height * c.height;
+  const tile = Math.min((c.width - 16) / map.width, (c.height - 16) / map.height), left = (c.width - map.width * tile) / 2, top = (c.height - map.height * tile) / 2;
+  const tx = Math.floor((x - left) / tile) + .5, ty = Math.floor((y - top) / tile) + .5;
+  if (map.seen[Math.floor(ty) * map.width + Math.floor(tx)] && movePlayer(state, tx, ty)) { closeModal(); toast('On the way.'); } else toast('Pick open ground you have already seen.');
+});
 document.addEventListener('gesturestart', e => e.preventDefault());
 
 // ---------- Boot ----------
@@ -411,7 +441,7 @@ setInterval(() => {
   processEvents(tick(state, dt));
   updateHud();
   slow += dt; mapTimer += dt;
-  if (mapTimer > .4) { mapTimer = 0; drawMinimap($('minimap'), state); $('minimap').hidden = state.location !== 'expedition'; }
+  if (mapTimer > .4) { mapTimer = 0; if ($('big-map') && $('dialog').open) drawMinimap($('big-map'), state, true); drawMinimap($('minimap'), state); $('minimap').hidden = state.location !== 'expedition'; }
   if (slow > .6) {
     slow = 0;
     if (dockUpgrades < 0) dockUpgrades = upgradeCount(state);

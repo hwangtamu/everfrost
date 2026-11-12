@@ -4,7 +4,8 @@ import {createGame,teleportVillage,resumeExpedition,startVillageStage,craftKeyst
 import {makeKeystone,validKeystone,riftBonuses,RIFT_MODIFIERS,rollKeystone} from '../dist/keystones.js';
 import {seededRandom,walkable} from '../dist/world.js';
 import {matchesLootFilter,normalizeLootFilter} from '../dist/loot-filter.js';
-import {worldPanel,keystoneDetail} from '../dist/panels.js';
+import {worldPanel,keystoneDetail,riftConfirm} from '../dist/panels.js';
+import {runRift,returnToExpedition,cutKeystone} from '../dist/engine.js';
 const fixed=()=>.6;
 const memory=()=>{const data=new Map();return {getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v)};};
 function rift(rarity=0,seed=42){const s=createGame(1000,seed);teleportVillage(s);const key=makeKeystone(rarity,1,fixed);s.keystones.push(key);assert(openRiftPortal(s,key.id));assert(enterRift(s,fixed));return s;}
@@ -129,10 +130,29 @@ test('automatic arena combat can finish all waves without teleport or terrain es
  assert.equal(s.location,'rift');assert(s.map.completed);assert.equal(s.rift.wave,5);
 });
 
-test('Village renders the entrance, return portal, keystone recipes and one-use rules',()=>{
- const s=rift(0);teleportVillage(s);const key=makeKeystone(3);s.keystones.push(key);
- const html=worldPanel(s,{worldTab:'rifts'});assert.match(html,/In the Village/);assert.match(html,/Resume expedition/);assert.match(html,/Cut a keystone/);assert.match(html,/Transmutation/);
- assert.match(html,new RegExp('data-act="open-rift" data-arg="'+key.id+'" >'));
- assert.match(keystoneDetail(key),/quantity/);assert.match(keystoneDetail(key),/rarity/);assert.match(keystoneDetail(key),/5 waves/);
- resumeExpedition(s);assert.match(worldPanel(s,{worldTab:'rifts'}),/data-act="open-rift"[^>]*disabled/);
+test('the rifts tab lists keystones with ratings and rewards, recipes with costs, and the live run',()=>{
+ const s=createGame(1000,42);const key=makeKeystone(3,1,()=>.5);s.keystones.push(key);
+ const ui={worldTab:'rifts'},html=worldPanel(s,ui);
+ assert.match(html,/Cut a keystone/);assert.match(html,/Transmutation/);assert.match(html,/class="threat t\d"/);
+ assert.match(html,new RegExp('data-act="enter-key" data-arg="'+key.id+'" >'));assert.match(html,/% qty/);
+ assert.match(keystoneDetail(key,s),/quantity/);assert.match(keystoneDetail(key,s),/rarity/);assert.match(keystoneDetail(key,s),/5 waves/);
+ assert.match(riftConfirm(s,key),/One attempt/);assert.match(riftConfirm(s,key),/data-act="run-rift"/);
+ s.keystones.push(makeKeystone(0,1,()=>.5));assert(runRift(s,key.id,()=>.5));const inside=worldPanel(s,ui);
+ assert.match(inside,/In the rift/);assert.match(inside,/data-act="leave-rift"/);assert.match(inside,/data-act="enter-key"[^>]*disabled/);
+ assert.match(worldPanel(s,{worldTab:'map'}),/inside a rift/);
+});
+
+test('one-step rift flow freezes the expedition, and returning resumes it exactly',()=>{
+ const s=createGame(1000,42);for(let i=0;i<30;i++)tick(s,.1,()=>.6);
+ const key=makeKeystone(1,1,()=>.5);s.keystones.push(key);
+ const frozen=JSON.stringify({map:s.map,enemies:s.enemies,player:s.player,stage:s.stage});
+ assert(!runRift(s,'missing'));assert.equal(s.location,'expedition','a failed start leaves the expedition untouched');
+ assert.equal(JSON.stringify({map:s.map,enemies:s.enemies,player:s.player,stage:s.stage}),frozen);
+ assert(runRift(s,key.id,()=>.5));assert.equal(s.location,'rift');assert.equal(s.keystones.length,0);assert(!runRift(s,key.id));
+ assert(returnToExpedition(s));assert.equal(s.location,'expedition');assert.equal(s.lastRift.status,'abandoned');assert(s.auto);
+ assert.equal(JSON.stringify({map:s.map,enemies:s.enemies,player:s.player,stage:s.stage}),frozen);
+ // Cutting a keystone no longer needs a trip to the Village.
+ s.orbs.transmute=3;const cut=cutKeystone(s,0,1);assert(cut.ok);assert.equal(s.location,'expedition');assert.equal(s.orbs.transmute,0);
+ assert.equal(JSON.stringify({map:s.map,enemies:s.enemies,player:s.player,stage:s.stage}),frozen);
+ assert(!cutKeystone(s,0,1).ok);assert.equal(s.location,'expedition');
 });

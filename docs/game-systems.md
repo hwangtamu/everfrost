@@ -212,7 +212,28 @@ pieces worn; two rings of one set count once.
 
 Set pieces pass the loot filter's "always keep uniques and set pieces" rule.
 
+## Stage ratings, clear times and auto-push
+
+- `stageThreat(s, stage, mods)` compares how long a pack takes to kill the
+  hero (armor-mitigated hits against health, regeneration, kill-heal and
+  leech) with how long the hero takes to kill the pack, and maps the ratio to
+  Trivial / Easy / Even / Hard / Deadly (ratio above 8 / 2.5 / 0.8 / 0.3).
+  The cut-offs were set against the simulation: deaths begin around Hard and
+  become frequent at Deadly. `riftThreat` applies a keystone's modifiers.
+- `map.elapsed` counts fighting time; `bestTimes[stage]` keeps the fastest
+  clear (event `clearTime`).
+- A forced retreat sets `retreated`. While it is set and auto-advance is off,
+  each guardian kill counts toward `FARM_CLEARS` (3); then auto-advance turns
+  back on (event `push`). Choosing Push or Farm by hand clears the flag, so
+  deliberate farming is never overridden.
+
 ## Village and rifts
+
+The interface no longer sends the player to the Village. `runRift`,
+`returnToExpedition` and `cutKeystone` wrap the Village rules below in single
+steps: the expedition is frozen exactly, the rift runs, and the expedition is
+resumed (automatically ~3.5 s after a clear, immediately after a death).
+
 
 - Teleporting to the Village freezes the expedition exactly; resuming returns
   to it. Keystones are cut and opened only in the Village.

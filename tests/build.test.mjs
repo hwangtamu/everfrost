@@ -445,3 +445,46 @@ test('set pieces and sockets survive saves, pass the unique filter rule, and sho
   const gems=forgePanel(t,{forgeItem:t.inventory[1].id,forgeTab:'gems'});assert(gems.includes('data-act="gem-socket" data-arg="ruby1"'));assert(gems.includes('data-act="gem-pull" data-arg="0"'));
   assert(forgePanel(t,{forgeItem:t.inventory[0].id,forgeTab:'gems'}).includes('Jewelry cannot hold gems'));
 });
+
+// ---------- Map and stage UX ----------
+import {stageThreat,riftThreat,guardianTraits,THREATS,FARM_CLEARS} from '../dist/engine.js';
+import {stageInfo,mapDialog,riftSummary,clock} from '../dist/panels.js';
+import {makeKeystone} from '../dist/keystones.js';
+
+test('threat ratings rise with stage, fall with power, and account for rift modifiers',()=>{
+  const s=createGame(1000,42);
+  assert.equal(stageThreat(s,1).level<=1,true);assert.equal(stageThreat(s,40).label,'Deadly');
+  let last=-1;for(const stage of [1,3,6,10,20,40]){const t=stageThreat(s,stage);assert(t.level>=last);assert.equal(t.label,THREATS[t.level]);last=t.level;}
+  const strong=createGame(1000,42);strong.level=40;for(const slot of Object.keys(strong.equipment))strong.equipment[slot]=makeItem(slot,2,40,fixed);
+  assert(stageThreat(strong,20).level<stageThreat(s,20).level);
+  const plain=makeKeystone(0,10,fixed),nasty=makeKeystone(3,10,fixed);
+  assert(riftThreat(strong,nasty).score<riftThreat(strong,plain).score);
+});
+
+test('clear times are recorded, and three clean farm clears after a retreat push again',()=>{
+  const s=createGame(1000,42);s.maxStage=4;travel(s,4);
+  const clear=()=>{for(const e of s.enemies.filter(e=>!e.boss))defeatEnemy(s,e,[],fixed);const ev=[];s.map.elapsed=42.4;defeatEnemy(s,s.enemies.find(e=>e.boss),ev,fixed);for(let i=0;i<35;i++)tick(s,.1,fixed);return ev;};
+  s.hp=0;tick(s,.1,fixed);s.hp=0;tick(s,.1,fixed);
+  assert.equal(s.stage,3);assert.equal(s.advance,false);assert.equal(s.retreated,true);
+  let ev=clear();assert.equal(s.bestTimes[3],42);assert(ev.some(e=>e.type==='clearTime'&&e.best));assert.equal(s.stage,3);assert.equal(s.farmClears,1);
+  clear();ev=clear();assert(ev.some(e=>e.type==='push'));assert.equal(s.advance,true);assert.equal(s.retreated,false);assert.equal(s.stage,4);
+  const manual=createGame(1000,42);manual.advance=false;manual.maxStage=2;
+  for(let n=0;n<FARM_CLEARS+1;n++){for(const e of manual.enemies.filter(e=>!e.boss))defeatEnemy(manual,e,[],fixed);defeatEnemy(manual,manual.enemies.find(e=>e.boss),[],fixed);for(let i=0;i<35;i++)tick(manual,.1,fixed);}
+  assert.equal(manual.advance,false,'farming by choice is never overridden');assert.equal(manual.stage,1);
+});
+
+test('the stages tab shows the live run, ratings, a detail card and travel',()=>{
+  const s=createGame(1000,42);s.maxStage=27;s.bestTimes={6:75};
+  const ui={worldTab:'map',mapCycle:0,mapStage:6},html=worldPanel(s,ui);
+  assert.equal((html.match(/aria-label="Stage /g)||[]).length,20);assert.equal((html.match(/data-act="pick-stage"/g)||[]).length,20);
+  assert(html.includes('enemies left · seal 0/'));assert(html.includes('data-act="set-advance" data-arg="0"'));
+  assert(html.includes('Stage 6 · Frostfall Ridge'));assert(html.includes('Chilling Touch'));assert(html.includes('Best clear 1:15'));
+  assert(html.includes('data-act="travel" data-arg="6" >'));assert(html.includes('Jump to your highest stage (27)'));
+  assert.deepEqual(guardianTraits(26),['chilling','regenerating'].slice(0,1).concat(guardianTraits(26).slice(1)));assert.equal(stageInfo(s,26).traits.length,4);
+  assert(stageInfo(s,28).locked);assert(worldPanel(s,{...ui,mapCycle:1,mapStage:28}).includes('aria-label="Stage 28"'));
+  s.retreated=true;s.advance=false;s.farmClears=1;assert(worldPanel(s,ui).includes('2 more clean clears'));
+  assert.equal(clock(125),'2:05');
+  assert(mapDialog(s).includes('id="big-map"'));assert(mapDialog(s).includes('Guardian'));
+  const sum=riftSummary(s,{status:'failed',wave:3,seconds:95,gold:1200,gems:2,items:[makeItem('hand',2,5,fixed)]});
+  assert(sum.includes('wave <b>3</b>'));assert(sum.includes('1:35'));assert(sum.includes('data-act="item"'));
+});

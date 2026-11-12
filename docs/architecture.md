@@ -94,6 +94,7 @@ dialog#dialog                 item details, confirmations, menu, help
 | `heal`, `potion`, `potionCharge` | Recovery |
 | `level`, `unlock` | Level gained; a skill became available |
 | `bossReady`, `complete`, `stage`, `newMap` | Stage flow |
-| `death`, `retreat` | Defeat and falling back a stage |
+| `death`, `retreat`, `push` | Defeat, falling back a stage, and pushing again after clean farm clears |
+| `clearTime` | Guardian down: seconds taken and whether it is a new best |
 | `riftWave`, `riftComplete`, `riftFailed` | Rift flow |
 | `enemyAttack`, `warning` | Enemy swing line; slam telegraph |

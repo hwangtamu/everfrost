@@ -183,6 +183,8 @@ The suspended world includes stage, map, monsters, position, health, cooldowns, 
   right row of the longer lists.
 - `lootFilter.keepUpgrades` and `settings.autoEquip` default to `true` and
   `false`.
+- `bestTimes` is `{stage: seconds}` (last 400 kept); `retreated` and
+  `farmClears` track the auto-push after a forced retreat.
 - `gems` is `{<type><grade>: count}` (e.g. `ruby2`); unknown keys and
   non-positive counts are dropped.
 - Items may carry `sockets` (array of gem keys or `null`, trimmed to the

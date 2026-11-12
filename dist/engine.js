@@ -26,9 +26,17 @@ const zeroOrbs = () => Object.fromEntries(Object.keys(CRAFT_OPERATIONS).map(k =>
 export const regionIndex = s => Math.floor(((s.stage-1)%20)/5);
 export const journey = s => Math.floor((s.stage-1)/20)+1;
 export const region = s => REGIONS[regionIndex(s)];
+// Extra modifiers a stage's guardian carries beyond Earthshatter and Empowered.
+export function guardianTraits(stage) {
+  const at = {stage}, out = [], trait = [null,'chilling','burningAura','hasted'][regionIndex(at)];
+  if (trait) out.push(trait);
+  if (journey(at) > 1) out.push(['regenerating','deadly','vampiric','armored'][(journey(at)+regionIndex(at)) % 4]);
+  return out;
+}
 export const xpRequired = level => Math.round(45 * Math.pow(level, 1.38));
 export const BASE_COMBAT = {movementSpeed:5.8, attackInterval:.85, attackRange:1.9, critMultiplier:1.8, splash:.5, potionHeal:.4, potionCharges:3};
 export const POTION_KILLS = 14;
+export const FARM_CLEARS = 3;
 export const IGNITE_RATE = .5, SHOCK_CHANCE = .15;
 // Enemy scaling outpaces raw levels, so later stages ask for upgrades, crafting and a build.
 export const enemyBaseLife = stage => (14 + 20 * Math.pow(stage,1.4)) * Math.pow(1.055,stage-1);
@@ -146,7 +154,7 @@ export function createGame(now = Date.now(), seed = Math.floor(Math.random() * 4
     inventory:[], orbs:zeroOrbs(), equipment:{...Object.fromEntries(GEAR_SLOTS.map(slot=>[slot,null])),hand:makeItem('hand',0,1,Math.random,'gauntlets'),chest:makeItem('chest',0,1,Math.random,'cuirass')},
     points:0, skillPoints:0, tree:[], skills:defaultSkills(), mana:43, potion:{charges:BASE_COMBAT.potionCharges,progress:0,lock:0}, deathStreak:0, castLock:0, cooldowns:zeroCooldowns(),
     enemy:null, enemies:[], attackTimer:0, attackCount:0, respawn:0, log:[], claimed:[],
-    lastSave:now, playTime:0, runNumber:0, riftsCleared:0, tierKills:{normal:0,magic:0,rare:0,unique:0},
+    lastSave:now, playTime:0, runNumber:0, riftsCleared:0, bestTimes:{}, retreated:false, farmClears:0, tierKills:{normal:0,magic:0,rare:0,unique:0},
     settings:{sound:false,motion:true,autoPotion:true,autoEquip:false}, hazards:[], effects:{chill:0}, died:false,
     gems:{},groundLoot:[],lootFilter:normalizeLootFilter(),location:'expedition',returnPortal:false,expedition:null,keystones:[],riftPortal:null,rift:null,lastRift:null
   };
@@ -210,9 +218,7 @@ export function startExpedition(s, seed = (Math.floor(Math.random()*4294967296) 
   const bossRoom = s.map.rooms.find(r => r.id === s.map.bossRoomId);
   const guardian = makeEnemy(s, 'unique', {x:bossRoom.x,y:bossRoom.y}, bossRoom.id, rng);
   // Each region's guardian fights differently; later journeys add a second trait.
-  const trait = [null,'chilling','burningAura','hasted'][regionIndex(s)];
-  if (trait) guardian.modifiers = [...guardian.modifiers, trait];
-  if (journey(s) > 1) guardian.modifiers = [...guardian.modifiers, ['regenerating','deadly','vampiric','armored'][(journey(s)+regionIndex(s)) % 4]];
+  guardian.modifiers = [...guardian.modifiers, ...guardianTraits(s.stage)];
   s.enemies.push(guardian);
   s.map.goal = s.enemies.reduce((n,e) => n + e.points,0);
   selectTarget(s);
@@ -383,6 +389,11 @@ export function defeatEnemy(s,enemy,events = [],rng = Math.random) {
     if (enemy.modifiers.includes('volatile')) s.hazards.push({kind:'volatile',x:enemy.x,y:enemy.y,radius:2.5,remaining:1.4,total:1.4,damage:enemy.baseDamage*3,element:'fire'});
   } else {
     s.bosses++; s.deathStreak = 0; s.map.completed = true; s.maxStage = Math.max(s.maxStage,s.stage+1); s.respawn = 3;
+    const seconds = Math.round(s.map.elapsed || 0);
+    if (seconds > 0 && !(s.bestTimes[s.stage] <= seconds)) s.bestTimes[s.stage] = seconds;
+    events.push({type:'clearTime',stage:s.stage,seconds,best:s.bestTimes[s.stage]===seconds});
+    // After a retreat the hero farms; three clean clears later they try pushing again.
+    if (s.retreated && !s.advance && ++s.farmClears >= FARM_CLEARS) { s.advance = true; s.retreated = false; s.farmClears = 0; events.push({type:'push',stage:s.stage+1}); addLog(s,'Strong enough to push on. Auto-advance is back on.','system'); }
     s.hazards = []; events.push({type:'complete',stage:s.stage}); addLog(s,`Stage ${s.stage} cleared. The road ahead is open.`,'system');
   }
 }
@@ -482,6 +493,7 @@ function advanceEffects(s,dt,p,events,rng) {
 function advanceStep(s,dt,events,rng) {
   if(s.location==='village')return;
   s.playTime += dt;
+  if (s.auto && !s.map.completed) s.map.elapsed = (s.map.elapsed || 0) + dt;
   const base = stats(s), cooldownRate = (hasUnique(s,'sagesCrown') ? 1.3 : 1) * base.cooldownRate;
   for (const skill of SKILLS) s.cooldowns[skill.id] = Math.max(0,(s.cooldowns[skill.id]||0)-dt*cooldownRate);
   s.castLock = Math.max(0,(s.castLock||0)-dt); s.potion.lock = Math.max(0,s.potion.lock-dt);
@@ -588,7 +600,7 @@ function advanceStep(s,dt,events,rng) {
     s.died=true;s.deathStreak=(s.deathStreak||0)+1;s.hazards=[];s.effects={chill:0};
     events.push({type:'death'});
     if(s.deathStreak>=2&&s.stage>1){
-      s.deathStreak=0;s.stage--;s.advance=false;startExpedition(s);
+      s.deathStreak=0;s.stage--;s.advance=false;s.retreated=true;s.farmClears=0;startExpedition(s);
       events.push({type:'retreat',stage:s.stage});addLog(s,`Overwhelmed. Fell back to stage ${s.stage} to gather strength; auto-advance is off.`,'system');
     }else{
       s.hp=p.maxHp;s.mana=p.maxMana;s.potion.charges=p.potionCharges;
@@ -779,6 +791,42 @@ export function saveGame(s,storage=globalThis.localStorage,now=Date.now()){
 const EXPEDITION_FIELDS=['stage','map','enemies','enemy','player','hp','cooldowns','effects','hazards','attackTimer','attackCount','respawn','killsInStage','died','auto','groundLoot'];
 function captureExpedition(s){return structuredClone(Object.fromEntries(EXPEDITION_FIELDS.map(key=>[key,s[key]])));}
 
+// How dangerous enemies of a given level are for this hero right now: the time a
+// pack takes to kill the hero against the time the hero takes to kill the pack.
+export const THREATS = ['Trivial','Easy','Even','Hard','Deadly'];
+export function stageThreat(s,stage,mods={}){
+  const p=combatStats({...s,effects:{chill:0}}),life=enemyBaseLife(stage)*(1+(mods.life||0)/100),hit=enemyBaseDamage(stage)*(1+(mods.damage||0)/100)*(1+(mods.speed||0)/100);
+  const killPack=life*1.6*8/(p.dps*2*(1-(mods.reduction||0)/100)),incoming=5*hit*(1-armorReduction(p.defense,hit))*p.damageTaken/2.3;
+  const sustain=p.regen+p.maxHp*.012*8/Math.max(1,killPack)+p.dps*p.leech/100;
+  const survive=p.maxHp/Math.max(.01,incoming-sustain*.6),score=survive/killPack;
+  const level=incoming<=sustain*.6||score>8?0:score>2.5?1:score>.8?2:score>.3?3:4;
+  return {score,level,label:THREATS[level]};
+}
+export const riftThreat=(s,key)=>stageThreat(s,key.itemLevel,riftBonuses(key));
+
+// One-step rift flow for the interface: the Village hop is invisible. The
+// expedition is frozen exactly and picked up again afterwards.
+export function runRift(s,keyId,rng=Math.random){
+  if(s.location==='rift')return false;
+  const away=s.location==='expedition';
+  if(away)teleportVillage(s);
+  if(!s.riftPortal&&!openRiftPortal(s,keyId)){if(away)resumeExpedition(s);return false;}
+  return enterRift(s,rng);
+}
+export function returnToExpedition(s){
+  if(s.location==='rift')teleportVillage(s);
+  if(s.location==='village'&&!(s.returnPortal&&resumeExpedition(s)))startVillageStage(s,Math.min(s.stage,s.maxStage));
+  if(s.location==='expedition')s.auto=true;
+  return s.location==='expedition';
+}
+export function cutKeystone(s,rarity,level,rng=Math.random){
+  if(s.location==='rift')return {ok:false,reason:'Finish the rift first.'};
+  const away=s.location==='expedition';
+  if(away)teleportVillage(s);
+  const result=craftKeystone(s,rarity,rng,level);
+  if(away)resumeExpedition(s);
+  return result;
+}
 export function teleportVillage(s){
   if(s.location==='village')return false;
   if(s.location==='rift'){leaveRift(s,s.map.completed?'cleared':'abandoned');return true;}
@@ -905,6 +953,8 @@ export function loadGame(storage=globalThis.localStorage,now=Date.now()){
     s.potion={charges:Math.max(0,Math.min(9,Math.floor(Number(data.potion?.charges??BASE_COMBAT.potionCharges))||0)),progress:Math.max(0,Math.min(POTION_KILLS,Number(data.potion?.progress)||0)),lock:0};
     s.gems=normalizeGems(data.gems);
     s.riftsCleared=Number.isSafeInteger(data.riftsCleared)&&data.riftsCleared>0?data.riftsCleared:0;
+    s.bestTimes=Object.fromEntries(Object.entries(data.bestTimes&&typeof data.bestTimes==='object'?data.bestTimes:{}).filter(([k,v])=>Number.isSafeInteger(Number(k))&&Number(k)>0&&Number.isFinite(v)&&v>0).slice(-400));
+    s.retreated=data.retreated===true;s.farmClears=Number.isInteger(data.farmClears)&&data.farmClears>0?Math.min(FARM_CLEARS,data.farmClears):0;
     s.deathStreak=0;s.castLock=0;s.mana=Number.isFinite(data.mana)&&data.mana>=0?data.mana:fresh.mana;
     for(const key of ['gold','xp','hp','maxStage','kills','points','lastSave','bosses','crafted'])if(!Number.isFinite(s[key])||s[key]<0)throw Error('Invalid save');
     s.maxStage=Math.max(s.stage,Math.floor(s.maxStage));s.speed=s.speed===2?2:1;s.auto=!!s.auto;s.advance=!!s.advance;s.inventory=s.inventory.slice(0,48);

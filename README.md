@@ -19,7 +19,8 @@ Open http://localhost:5173. For a phone on the same network, open the computer's
 - **It fights for you.** The hero hunts through each map, swings in arcs that splash onto neighbouring foes, and casts slotted skills automatically. Tap the ground to move, tap an enemy to focus it, tap a skill to cast it yourself. Telegraphed boss slams are sidestepped automatically.
 - **Health, mana, potions.** Skills cost mana and have short cooldowns. A potion with charges refills from kills and is drunk automatically at 35% health.
 - **Break the seal.** Each stage is a generated map of packs: normal, magic, and a rare aura leader. Killing them fills the seal; then the guardian appears. Guardians carry a trait per region and gain another on later journeys.
-- **Idle-friendly defeat.** Dying sends the hero back to camp and the fight continues. A second death on one map retreats a stage and switches to farming until you turn auto-advance back on.
+- **Idle-friendly defeat.** Dying sends the hero back to camp and the fight continues. A second death on one map retreats a stage and switches to farming; after three clean clears the hero pushes forward again on their own.
+- **A readable world.** Every stage is rated for your current hero — trivial, easy, even, hard or deadly — and shows its guardian's traits, loot notes and your best clear time. Tap the minimap for the full map with a legend, and tap it to walk somewhere. A small counter shows how many enemies are left.
 - **Endless stages.** Four regions repeat in 20-stage journeys. Enemy life and damage grow faster than raw levels, so later stages ask for a real build.
 
 ## Build depth
@@ -32,7 +33,7 @@ Open http://localhost:5173. For a phone on the same network, open the computer's
 - **Bag.** A 48-slot grid. ▲ marks anything that would raise your damage or toughness; one tap equips every upgrade, or turn on auto-equip. Item details show the damage and toughness change, utility changes, and the piece being replaced. Lock items to protect them. Sort by best upgrade.
 - **Loot filter.** One-tap presets (keep all, magic+, rare+, unique only) plus slot, level and modifier rules. Rejected drops become gold — but anything that would be an upgrade is spared.
 - **Forge.** Temper equipped gear with gold, apply eight kinds of orbs (transmute, augment, regal, alchemy, chaos, exalted, scouring, divine), pick an exact modifier at the bench, set and combine gems, merge three matching items into the next rarity, or gamble gold on an unidentified piece for a chosen slot. Salvaging rare and unique gear by hand can free an orb.
-- **Rifts.** Cut keystones from orbs in the Village and open a rift: five waves and a boss, with modifiers that raise both danger and reward. One entry.
+- **Rifts.** Cut keystones from orbs (choose the level) and enter with one tap: five waves and a boss, with modifiers that raise both danger and reward. Each keystone shows a threat rating and its rewards up front. One attempt; the expedition is frozen meanwhile and resumes automatically, with a summary of what the run earned.
 - **Quests.** Sixteen deeds paying gold and orbs.
 - **Away.** With the fight running you earn gold, experience, orbs and a few items for up to eight hours while the game is closed.
 
@@ -64,7 +65,7 @@ firebase deploy --only firestore:rules,hosting   # uses .firebaserc
 node --test tests/*.test.mjs
 ```
 
-119 tests cover map generation (500 seeds), automatic expeditions (100 seeds), combat math, skills and runes, auto-cast, the passive tree, potions, ailments, loot and filters, crafting, rifts, panels, save migration and cloud sync.
+123 tests cover map generation (500 seeds), automatic expeditions (100 seeds), combat math, skills and runes, auto-cast, the passive tree, potions, ailments, loot and filters, crafting, rifts, panels, save migration and cloud sync.
 
 - `dist/engine.js` — game rules, simulation and persistence (DOM-free).
 - `dist/skills.js`, `dist/tree.js` — skill and passive-tree data and rules.
