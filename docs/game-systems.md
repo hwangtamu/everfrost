@@ -173,6 +173,45 @@ node. `respecCost = 40 + nodes · 12 · max(1, floor(level/5))` gold.
 - **Bench**: add a chosen modifier at a chosen tier for gold.
 - **Merge**: three bag items of one slot and rarity → the next rarity, 75 gold.
 
+## Sockets and gems (`gems.js`)
+
+- Socket limits: hand and chest 3, head and leg 2, shoulder, wrist, belt and
+  foot 1, jewelry 0. A drop has sockets 35/20/15/25% of the time for
+  normal/magic/rare/unique, with a uniform count from 1 to the slot's limit.
+- Six gems × five grades (Chipped, Flawed, Polished, Flawless, Perfect):
+
+| Gem | In hand / wrist | In armor |
+|---|---|---|
+| Ruby | fire 4–60 | health 14–200 |
+| Sapphire | cold 4–60 | mana 8–45 |
+| Topaz | lightning 4–60 | item rarity 5–24% |
+| Emerald | critical multiplier 8–35% | resistance 4–16% |
+| Diamond | attack 3–46 | armor 3–42 |
+| Amethyst | attack speed 3–13% | regeneration 1.5–20 |
+
+- Drop chance per kill 2/7/30/100% by tier. The best grade available rises
+  at stages 8, 18, 32 and 50; 60% of drops are one grade below it.
+- Three gems of a kind and grade combine into the next grade. Socketing is
+  free; pulling a gem costs `20 + 6·item level` gold and returns it; adding a
+  socket costs `250 · (sockets+1)² · (1 + 0.15·item level)`. Salvaging or
+  merging an item returns its gems.
+
+## Sets (`sets.js`)
+
+A rare drop (or gamble result) becomes a set piece 10% of the time: a rare
+item on the set's fixed base with the set's name. Bonuses count distinct
+pieces worn; two rings of one set count once.
+
+| Set | Pieces | 2 | 3 | 4 |
+|---|---|---|---|---|
+| Wolfpack | hand, foot, belt, ring | +12% attack speed | +15% movement, 2% leech | +60% splash |
+| Frostwarden | head, chest, shoulder, leg | +15% health | +25% armor, +15% resistance | 10% less damage taken |
+| Stormcaller | head, neck, wrist, ring | +20% skill damage | +15% cooldown recovery, +30% mana regeneration | +2 all skill ranks |
+| Ashen Executioner | hand, wrist, neck, belt | +6% critical chance | +40% critical multiplier | 20% more damage |
+| Treasure Seeker | foot, ring, belt, shoulder | +30% gold found | +30% item rarity | +1 potion charge, +15% movement |
+
+Set pieces pass the loot filter's "always keep uniques and set pieces" rule.
+
 ## Village and rifts
 
 - Teleporting to the Village freezes the expedition exactly; resuming returns

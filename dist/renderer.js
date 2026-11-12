@@ -133,7 +133,7 @@ export class Battlefield{
     if(e.type==='whirl')this.effects.push({type:'spin',x,y,radius:e.radius,life:.25,total:.25});
     if(e.type==='explosion'){this.effects.push({type:'blast',x,y,radius:e.radius||2.6,friendly:e.friendly,life:.5,total:.5});this.shake=Math.max(this.shake,.3);}
     if(e.type==='enemyAttack')this.effects.push({...e,life:.2,total:.2});
-    if(e.type==='drop'&&e.item.rarity>=2)this.effects.push({type:'ring',x,y,radius:1.2,color:RARITY_COLORS[e.item.rarity],life:.7,total:.7});
+    if(e.type==='drop'&&e.item.rarity>=2)this.effects.push({type:'ring',x,y,radius:1.2,color:e.item.set?'#7ed68b':RARITY_COLORS[e.item.rarity],life:.7,total:.7});
   }
 
   draw(timestamp){
@@ -240,7 +240,7 @@ export class Battlefield{
     const shown=(s.groundLoot||[]).filter(d=>matchesLootFilter(d.item,s.lootFilter)&&s.map.seen[Math.floor(d.y)*s.map.width+Math.floor(d.x)]);
     const labels=[],z=this.zoom;
     for(const drop of shown){
-      const px=drop.x*CELL,py=drop.y*CELL,color=RARITY_COLORS[drop.item.rarity];
+      const px=drop.x*CELL,py=drop.y*CELL,color=drop.item.set?'#7ed68b':RARITY_COLORS[drop.item.rarity];
       if(px<this.camera.x-100||px>this.camera.x+w+100||py<this.camera.y-60||py>this.camera.y+this.h/z+60)continue;
       c.save();c.globalAlpha=.85;
       if(drop.item.rarity>=2){const beam=c.createLinearGradient(px,py-70,px,py);beam.addColorStop(0,color+'00');beam.addColorStop(1,color+'88');c.fillStyle=beam;c.fillRect(px-4,py-70,8,70);}

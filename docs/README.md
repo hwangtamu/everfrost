@@ -25,7 +25,9 @@ modules served statically. This index maps the system; each page goes deeper.
 │   ├── world.js            Seeded map generation, pathfinding, fog
 │   ├── monsters.js         Enemy tiers and modifiers
 │   ├── loot.js             Affixes, tiers, uniques, rolling
-│   ├── gear.js             Slots and implicit stats
+│   ├── gear.js             Slots, bases and implicit stats
+│   ├── gems.js             Sockets, gem data, combining and socketing
+│   ├── sets.js             Item sets and their bonuses
 │   ├── crafting.js         Orbs and the bench
 │   ├── keystones.js        Rift keystones and arena
 │   ├── loot-filter.js      Filter rules
@@ -35,7 +37,7 @@ modules served statically. This index maps the system; each page goes deeper.
 │   ├── actors.js           Procedural sprites
 │   ├── icons.js            Inline SVG icons
 │   └── manifest.webmanifest, icon*.png|svg   Home-screen install
-└── tests/                  Node test runner; 112 tests
+└── tests/                  Node test runner; 119 tests
 ```
 
 ## Design principles

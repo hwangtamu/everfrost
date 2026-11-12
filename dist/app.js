@@ -7,6 +7,7 @@ import {GEAR,RING_SLOTS} from './gear.js';
 import {ITEM_RARITIES} from './loot.js';
 import {ENEMY_TIERS,MODIFIERS} from './monsters.js';
 import {craft,benchCraft,CRAFT_OPERATIONS} from './crafting.js';
+import {GEM_TYPES,GEM_GRADES,gemKey,gemName,parseGem,combineGems,socketGem,unsocketGem,addSocket} from './gems.js';
 import {RIFT_WAVES} from './keystones.js';
 import {normalizeLootFilter} from './loot-filter.js';
 import {CloudSaves,restorePayload} from './cloud-saves.js';
@@ -183,7 +184,8 @@ function processEvents(events) {
       case 'level': banner(`Level ${e.value}`, '+1 passive point · +1 skill point', 'gold'); sound(660, .3); skillbarKey = ''; refreshSheet(); if (e.value === 2) toast('Points to spend: open Passives and Skills in the dock.', 'gold'); break;
       case 'unlock': toast(`New skill: ${e.name}`, 'gold'); skillbarKey = ''; break;
       case 'autoEquip': feed(`${icon('up')} Equipped <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); refreshSheet(); break;
-      case 'loot': ui.fresh.add(e.item.id); if (state.inventory.length === 48 && !bagWarned) { bagWarned = true; toast('Bag full — new drops are salvaged. Tap Bag to clear it out.'); } if (state.inventory.length < 44) bagWarned = false; if (e.item.rarity >= 1) feed(`${icon('bag')} <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); if (e.item.rarity >= 3) { toast(`Unique found: ${e.item.name}`, 'gold'); sound(880, .4); } if (ui.sheet === 'bag' || ui.sheet === 'forge') refreshSheet(); dockUpgrades = -1; break;
+      case 'loot': ui.fresh.add(e.item.id); if (state.inventory.length === 48 && !bagWarned) { bagWarned = true; toast('Bag full — new drops are salvaged. Tap Bag to clear it out.'); } if (state.inventory.length < 44) bagWarned = false; if (e.item.rarity >= 1) feed(`${icon('bag')} <span class="${e.item.set ? 'cset' : 'c' + e.item.rarity}">${esc(e.item.name)}</span>`); if (e.item.set) { toast(`Set piece found: ${e.item.name}`, 'gold'); sound(840, .35); } if (e.item.rarity >= 3) { toast(`Unique found: ${e.item.name}`, 'gold'); sound(880, .4); } if (ui.sheet === 'bag' || ui.sheet === 'forge') refreshSheet(); dockUpgrades = -1; break;
+      case 'gem': feed(`<i class="gem-dot" style="background:${parseGem(e.key).def.color}"></i> <span class="c1">${esc(e.name)}</span>`); if (ui.sheet === 'forge') refreshSheet(); break;
       case 'orb': feed(`${icon('sparkles')} <span class="c2">${esc(e.name)}</span>`); if (ui.sheet === 'forge' || ui.sheet === 'world') refreshSheet(); break;
       case 'keystone': feed(`${icon('portal')} <span class="c${e.item.rarity}">${esc(e.item.name)}</span>`); toast('Keystone found — open it in the Village.', 'gold'); persist(); break;
       case 'bossReady': banner('Seal broken', 'The guardian is revealed', 'boss'); sound(140, .5, 'sawtooth'); break;
@@ -300,6 +302,11 @@ function act(name, b) {
     case 'loot-filter': modal('Loot filter', lootFilterForm(state)); changed = false; break;
     case 'filter-preset': state.lootFilter = normalizeLootFilter({...state.lootFilter, minRarity:Number(arg)}); modal('Loot filter', lootFilterForm(state)); persist(); changed = false; break;
     case 'lock': { const equipped = !state.inventory.some(i => i.id === arg); if (toggleLock(state, arg)) { inspect(arg, equipped); renderSheet(); persist(); } changed = false; break; }
+    case 'gem-socket': if (socketGem(state, currentForgeItem(), arg)) { sound(820, .2); toast(`${gemName(arg)} set.`, 'gold'); } break;
+    case 'gem-pull': if (unsocketGem(state, currentForgeItem(), Number(arg))) toast('Gem returned to your pouch.'); else toast('Not enough gold.'); break;
+    case 'gem-combine': if (combineGems(state, arg)) { sound(700, .2); const g = parseGem(arg); toast(`${gemName(gemKey(g.type, g.grade + 1))} created.`, 'gold'); } break;
+    case 'gem-combine-all': { let n = 0; for (let grade = 0; grade < GEM_GRADES.length - 1; grade++) for (const type of GEM_TYPES) while (combineGems(state, gemKey(type, grade))) n++; toast(n ? `Combined ${n} time${n === 1 ? '' : 's'}.` : 'Nothing to combine.', n ? 'gold' : 'info'); break; }
+    case 'add-socket': if (addSocket(state, currentForgeItem())) { sound(600, .2); toast('Socket added.', 'gold'); } else toast('Not enough gold.'); break;
     case 'gamble': { const r = gamble(state, arg); if (r.ok) { sound(r.item.rarity >= 2 ? 780 : 520, .25); ui.fresh.add(r.item.id); after(); modal(r.item.rarity === 3 ? 'A unique!' : r.item.rarity === 2 ? 'A rare find' : 'Your purchase', itemDetail(state, r.item)); changed = false; } else toast(r.reason); break; }
     case 'forge-item': ui.forgeItem = arg; ui.forgeTab = 'orbs'; closeModal(); if (ui.sheet !== 'forge') openSheet('forge'); else renderSheet(); changed = false; break;
     case 'forge-pick': ui.forgeItem = arg; break;

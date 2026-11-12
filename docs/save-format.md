@@ -183,6 +183,11 @@ The suspended world includes stage, map, monsters, position, health, cooldowns, 
   right row of the longer lists.
 - `lootFilter.keepUpgrades` and `settings.autoEquip` default to `true` and
   `false`.
+- `gems` is `{<type><grade>: count}` (e.g. `ruby2`); unknown keys and
+  non-positive counts are dropped.
+- Items may carry `sockets` (array of gem keys or `null`, trimmed to the
+  slot's limit; unknown gems become empty sockets) and `set` (dropped unless
+  the set has a piece for that slot).
 
 ## Builds (version 5)
 

@@ -236,7 +236,7 @@ test('time away brings back a few items without overfilling the bag',()=>{
 import {makeItem,equip,salvage,salvageGold,toggleLock,merge,gamble,gambleCost,equipUpgrades,dropItem,collectLoot} from '../dist/engine.js';
 import {BASES,baseOf,baseBonuses,bonusLines} from '../dist/gear.js';
 import {AFFIXES,makeAffix,retier,rollAffixes} from '../dist/loot.js';
-import {normalizeLootFilter} from '../dist/loot-filter.js';
+import {normalizeLootFilter,matchesLootFilter} from '../dist/loot-filter.js';
 import {itemDetail,itemTile,utilityChanges,inventoryItems,salvageCandidates} from '../dist/panels.js';
 
 test('every slot has three bases; the first keeps the classic profile and bonuses reach real stats',()=>{
@@ -356,4 +356,92 @@ test('the forge explains why an orb does not apply and only offers modifiers tha
   const bench=forgePanel(s,ui);assert(!bench.includes('value="lightning"'),'prefixes are full');assert(bench.includes('value="haste"'));
   assert(forgePanel(s,{...ui,forgeTab:'orbs'}).includes('Needs a normal item'));
   assert(forgePanel(s,{...ui,forgeTab:'gamble'}).includes('data-act="gamble" data-arg="ring"'));
+});
+
+// ---------- Sockets, gems and sets ----------
+import {makeSetItem} from '../dist/engine.js';
+import {GEMS,GEM_GRADES,gemKey,gemStat,gemName,rollSockets,rollGem,maxSockets,combineGems,socketGem,unsocketGem,unsocketCost,addSocket,socketCost,gemBonuses} from '../dist/gems.js';
+import {SETS,setCounts,setBonuses,setPiece,setsForSlot,randomSetPiece} from '../dist/sets.js';
+
+test('gems give one stat in hand pieces and another in armor, and reach real stats',()=>{
+  assert.equal(Object.keys(GEMS).length,6);assert.equal(GEM_GRADES.length,5);
+  for(const [type,def] of Object.entries(GEMS))for(const side of [def.weapon,def.armor]){assert.equal(side[1].length,5);for(let i=1;i<5;i++)assert(side[1][i]>side[1][i-1],type);}
+  assert.deepEqual(gemStat('ruby2','hand'),{stat:'fire',value:18});assert.deepEqual(gemStat('ruby2','chest'),{stat:'maxHp',value:58});
+  assert.equal(gemStat('nope1','hand'),null);assert.equal(gemName('topaz4'),'Perfect Topaz');
+  const s=createGame(1000,42),before=stats(s);
+  s.equipment.hand.sockets=['ruby2','diamond0',null];s.equipment.chest.sockets=['ruby2'];
+  const after=stats(s);
+  assert.equal(after.fire,before.fire+18);assert.equal(after.attack,before.attack+3);assert.equal(after.maxHp,before.maxHp+58);
+  assert.deepEqual(gemBonuses([s.equipment.hand,s.equipment.chest]),{fire:18,attack:3,maxHp:58});
+});
+
+test('sockets roll within slot limits; jewelry never has any',()=>{
+  for(const slot of ['neck','leftRing','rightRing']){assert.equal(maxSockets(slot),0);assert.deepEqual(rollSockets(slot,0,()=>0),[]);}
+  assert.equal(rollSockets('hand',0,()=>0).length,1);assert.equal(rollSockets('chest',0,()=>.34).length,2);assert.deepEqual(rollSockets('chest',2,()=>.34),[]);
+  let most=0;for(let i=0;i<400;i++){const item=makeItem('hand',0,5);most=Math.max(most,item.sockets?.length||0);assert((item.sockets?.length||0)<=3);}
+  assert.equal(most,3);
+});
+
+test('gems socket, pull, combine and come back when the item is destroyed',()=>{
+  const s=createGame(1000,42);s.gold=1e6;s.gems={ruby0:7,topaz1:1};
+  const item=makeItem('chest',1,10,fixed,'cuirass');item.sockets=[null];s.inventory=[item];
+  assert(combineGems(s,'ruby0'));assert(combineGems(s,'ruby0'));assert(!combineGems(s,'ruby0'));assert.deepEqual(s.gems,{ruby0:1,ruby1:2,topaz1:1});
+  assert(!combineGems(s,'topaz1'));s.gems.ruby4=3;assert(!combineGems(s,'ruby4'),'perfect is the top grade');delete s.gems.ruby4;
+  assert(socketGem(s,item,'topaz1'));assert.deepEqual(item.sockets,['topaz1']);assert.equal(s.gems.topaz1,undefined);
+  assert(!socketGem(s,item,'ruby1'),'no empty socket');assert(!socketGem(s,item,'emerald0'),'none held');
+  const cost=socketCost(item),gold=s.gold;assert(addSocket(s,item));assert.equal(s.gold,gold-cost);assert.equal(item.sockets.length,2);assert(socketCost(item)>cost);
+  assert(addSocket(s,item));assert(!addSocket(s,item),'chest holds three');
+  const g2=s.gold;assert(unsocketGem(s,item,0));assert.equal(s.gold,g2-unsocketCost(item));assert.equal(s.gems.topaz1,1);assert(!unsocketGem(s,item,0));
+  socketGem(s,item,'ruby1');socketGem(s,item,'ruby1');assert.equal(s.gems.ruby1,undefined);
+  assert(salvage(s,item.id,fixed));assert.equal(s.gems.ruby1,2,'salvage returns the gems');
+  const ring=makeItem('leftRing',0,5,fixed,'band');assert(!addSocket(s,ring));
+});
+
+test('gems drop more from tougher enemies and improve with stage',()=>{
+  assert.equal(rollGem('normal',1,()=>.5),null);assert.equal(rollGem('unique',1,()=>.5),'emerald0');
+  assert.equal(rollGem('unique',60,()=>.7),'diamond4');assert.equal(rollGem('unique',60,()=>.5),'emerald3');
+  const s=arena(1,30);s.enemies[0].tier='unique';const events=[];defeatEnemy(s,s.enemies[0],events,fixed);
+  assert.equal(events.filter(e=>e.type==='gem').length,1);assert.equal(Object.values(s.gems).reduce((a,b)=>a+b,0),1);
+});
+
+test('sets: five sets of four pieces on fixed bases, with bonuses at two, three and four',()=>{
+  assert.equal(Object.keys(SETS).length,5);
+  for(const [id,set] of Object.entries(SETS)){
+    assert.equal(Object.keys(set.pieces).length,4);assert.deepEqual(set.bonuses.map(b=>b[0]),[2,3,4]);
+    for(const [slot,[,base]] of Object.entries(set.pieces))assert(BASES[slot==='ring'?'leftRing':slot].some(b=>b.id===base),id+' '+slot);
+  }
+  const piece=makeSetItem('wolfpack','hand',12,fixed);
+  assert.equal(piece.set,'wolfpack');assert.equal(piece.name,'Wolfpack Fang');assert.equal(piece.rarity,2);assert.equal(piece.base,'claws');assert(piece.affixes.length>=4);
+  assert.throws(()=>makeSetItem('wolfpack','chest'));assert.equal(setPiece('wolfpack','rightRing')[0],'Howl');
+  assert(setsForSlot('leftRing').length>=3);assert.equal(randomSetPiece(fixed,'chest').setId,'frostwarden');assert.equal(randomSetPiece(fixed,'leg').slot,'leg');
+});
+
+test('set bonuses unlock by distinct pieces worn and change real stats',()=>{
+  const s=createGame(1000,42);const bare=p=>{const i=makeSetItem(...p,1,fixed);i.affixes=[];i.implicits=Object.fromEntries(Object.keys(i.implicits).map(k=>[k,0]));delete i.sockets;return i;};
+  const base=stats(s),hasteOf=()=>stats(s).haste;
+  s.equipment.foot=bare(['wolfpack','foot']);assert.deepEqual(setCounts(Object.values(s.equipment)),{wolfpack:1});assert.deepEqual(setBonuses(Object.values(s.equipment)),{});
+  s.equipment.leftRing=bare(['wolfpack','leftRing']);s.equipment.rightRing=bare(['wolfpack','rightRing']);
+  assert.equal(setCounts(Object.values(s.equipment)).wolfpack,2,'two rings of a set count once');
+  assert.equal(hasteOf(),base.haste+12);
+  s.equipment.belt=bare(['wolfpack','belt']);assert.equal(stats(s).leech,base.leech+2+.8*2,'three pieces, plus two bloodstone bases');
+  s.equipment.hand=bare(['wolfpack','hand']);assert(Math.abs(stats(s).splash-.5*1.6)<1e-9);
+  const storm=createGame(1000,42);storm.level=30;for(const slot of ['head','neck','wrist','leftRing'])storm.equipment[slot]=bare(['stormcaller',slot]);
+  assert.equal(skillRank(storm,'cleave'),3);assert(Math.abs(stats(storm).skillDamage-1.2)<1e-9);
+  const ward=createGame(1000,42);for(const slot of ['head','chest','shoulder','leg'])ward.equipment[slot]=bare(['frostwarden',slot]);
+  assert(Math.abs(stats(ward).damageTaken-.9)<1e-9);
+});
+
+test('set pieces and sockets survive saves, pass the unique filter rule, and show in item details',()=>{
+  const storage=memory(),s=createGame(1000,42);s.auto=false;
+  const piece=makeSetItem('executioner','neck',9,fixed),bad=makeItem('chest',0,9,fixed,'cuirass');bad.set='executioner';bad.sockets=['ruby1','junk',null,null,null];
+  s.inventory=[piece,bad];s.gems={ruby1:2,junk:5,topaz0:-1};saveGame(s,storage);
+  const t=loadGame(storage,s.lastSave).state;
+  assert.equal(t.inventory[0].set,'executioner');assert.equal(t.inventory[1].set,undefined,'a chest is not an executioner piece');
+  assert.deepEqual(t.inventory[1].sockets,['ruby1',null,null]);assert.deepEqual(t.gems,{ruby1:2});
+  assert(matchesLootFilter(piece,normalizeLootFilter({minRarity:3})));assert(!matchesLootFilter(piece,normalizeLootFilter({minRarity:3,alwaysShowUnique:false})));
+  const html=itemDetail(t,t.inventory[0]);assert(html.includes('Ashen Executioner set'));assert(html.includes('Deal 20% more damage'));assert(html.includes('0/4 worn'));
+  assert(itemDetail(t,t.inventory[1]).includes('Empty socket'));assert(itemTile(t.inventory[1]).includes('tile-sockets'));assert(itemTile(piece).includes(' set '));
+  t.equipment.neck=t.inventory[0];assert(heroPanel(t).includes('Ashen Executioner · 1/4'));
+  const gems=forgePanel(t,{forgeItem:t.inventory[1].id,forgeTab:'gems'});assert(gems.includes('data-act="gem-socket" data-arg="ruby1"'));assert(gems.includes('data-act="gem-pull" data-arg="0"'));
+  assert(forgePanel(t,{forgeItem:t.inventory[0].id,forgeTab:'gems'}).includes('Jewelry cannot hold gems'));
 });

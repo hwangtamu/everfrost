@@ -103,6 +103,15 @@ keystone each) and `BRIDGES` (two small nodes and a notable between
 neighbouring paths). Stats are plain keys summed by `treeBonuses`; a new key
 needs a line in `STAT_TEXT` and a consumer in `engine.js::stats()`.
 
+## Add a gem or a set
+
+- `dist/gems.js`, `GEMS`: `{name, color, weapon:[stat, [five values]], armor:[stat, [five values]]}`.
+  The stat must be one `stats()` reads from gear, and have a label in `STAT_NAMES`.
+- `dist/sets.js`, `SETS`: `pieces` maps a slot (or `ring`) to `[piece name, base id]`;
+  `bonuses` is `[[piecesNeeded, {stat: value}, text], …]`. Gear-style stats listed
+  in `engine.js::SET_GEAR_STATS` add like affixes; anything else is treated as
+  a passive-tree key (`lifePct`, `damageMore`, `takenLess`, …).
+
 ## Add a quest
 
 `dist/engine.js`, `QUESTS`:

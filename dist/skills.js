@@ -3,6 +3,8 @@
 // choice between two runes that reshape the skill. Four skills can be slotted
 // at once, and every slotted skill can be cast automatically.
 
+import {setBonuses} from './sets.js';
+
 export const SKILL_SLOTS = 4;
 export const MAX_SKILL_RANK = 10;
 export const RUNE_RANK = 4;
@@ -78,7 +80,7 @@ export function baseRank(s, id) {
   return 1 + Math.max(0, Math.min(MAX_SKILL_RANK-1, s.skills?.ranks?.[id] || 0));
 }
 // "+N to all skill ranks" on gear raises unlocked skills past their trained rank.
-export const gearRanks = s => Object.values(s.equipment || {}).reduce((n, item) => n + (item?.affixes || []).reduce((m, a) => m + (a.id === 'mastery' ? a.value : 0), 0), 0);
+export const gearRanks = s => Object.values(s.equipment || {}).reduce((n, item) => n + (item?.affixes || []).reduce((m, a) => m + (a.id === 'mastery' ? a.value : 0), 0), 0) + (setBonuses(Object.values(s.equipment || {})).allSkills || 0);
 export function skillRank(s, id) {
   const rank = baseRank(s, id);
   return rank ? rank + gearRanks(s) : 0;
