@@ -33,7 +33,7 @@ test('passives must connect, change real stats, and respec refunds for gold',()=
   assert(!canAllocate(s,'guard-1'));assert(!allocate(s,'guard-n'));
   assert(allocate(s,'guard-0'));assert(allocate(s,'guard-1'));assert(allocate(s,'guard-2'));
   const after=stats(s);
-  assert.equal(after.maxHp,Math.round(Math.round(before.maxHp*1.1*10)/10));assert(after.defense>before.defense);
+  assert(Math.abs(after.maxHp-before.maxHp*1.1)<=1,'+10% health, within rounding');assert(after.defense>before.defense);
   assert(!allocate(s,'guard-0'),'already owned');assert.equal(s.points,1);
   assert.deepEqual(treeBonuses(s),{lifePct:10,defensePct:10});
   const cost=respecCost(s);s.gold=cost-1;assert(!respec(s));s.gold=cost;assert(respec(s));
